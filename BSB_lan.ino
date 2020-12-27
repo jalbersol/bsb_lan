@@ -520,6 +520,19 @@ float *avgValues_Current = new float[numAverages];
 int avgCounter = 1;
 int loopCount = 0;
 
+bool bsb_error = false; // received error code (6700...6799)
+int bsb_okay = 0;
+
+const int TELEGRAM_ERROR_OKAY = 0;   // ok
+const int TELEGRAM_ERROR_DECODING_ERROR = 1;   // decoding error
+const int TELEGRAM_ERROR_UNKNOWN_COMMAND = 2;   // unknown command
+const int TELEGRAM_ERROR_NOT_FOUND = 4;   // not found
+const int TELEGRAM_ERROR_NO_ENUM_STR = 8;   // no enum str
+const int TELEGRAM_ERROR_UNKNOWN_TYPE = 16;  // unknown type
+const int TELEGRAM_ERROR_PARAMETER_NOT_SUPPORTED = 32;  // parameter not supported
+const int TELEGRAM_ERROR_COMMON_LPB_BUS_ERROR = 64;  // common LPB bus error
+const int TELEGRAM_ERROR_QUERY_FAILED = 128; // query failed
+
 struct decodedTelegram_t {
 uint8_t error; //0 - ok, 1 - decoding error, 2 - unknown command, 4 - not found, 8 - no enum str, 16 - unknown type, 32 - parameter not supported, 64 - common LPB bus error, 128 - query failed
 uint8_t readonly; // 0 - read/write, 1 - read only
@@ -1680,7 +1693,7 @@ void printCHOICE(byte *msg,byte data_len,const char *val0,const char *val1){
 
 /** *****************************************************************
  *  Function:
- *  Does:
+ *  Does: Writes text and optional value to outBuf.
  *  Pass parameters:
  *
  * Parameters passed back:
@@ -2011,13 +2024,20 @@ char *printTelegram(byte* msg, int query_line) {
 #endif
 */
 
+  DebugOutput.print(GetDateTime(date));//test
+  DebugOutput.print(F(" - "));//test
+
+  byte src = -1;
+  byte dst = -1;
   byte msg_type = msg[4+(bus.getBusType()*4)];
 
   if (bus.getBusType() != BUS_PPS) {
     // source
-    SerialPrintAddr(msg[1+(bus.getBusType()*2)]); // source address
+    src = msg[1+(bus.getBusType()*2)];
+    dst = msg[2];
+    SerialPrintAddr(src); // source address
     DebugOutput.print(F("->"));
-    SerialPrintAddr(msg[2]); // destination address
+    SerialPrintAddr(dst); // destination address
     DebugOutput.print(F(" "));
     // msg[3] contains the message length, not handled here
     SerialPrintType(msg_type); // message type, human readable
@@ -2519,11 +2539,22 @@ char *printTelegram(byte* msg, int query_line) {
         decodedTelegram.error = 2;
       }
     }
+    if(dst==ADDR_HEIZ && src==ADDR_DISP && msg_type == TYPE_ANS && cmd==6700) {
+      bsb_error = true;
+      bsb_okay = 0;
+    } else {
+      bsb_okay++;
+      if(bsb_okay>30) {
+        bsb_error = false;
+      }
+    }
+
   }
   if (bus.getBusType() != BUS_PPS || (bus.getBusType() == BUS_PPS && !monitor)) {
     DebugOutput.println();
   }
   if(verbose){
+    if(!monitor) DebugOutput.print(F("                      "));//test   "Date Time - "
     if (bus.getBusType() != BUS_PPS) {
       SerialPrintRAW(msg,msg[bus.getLen_idx()]+bus.getBusType());
     } else {
@@ -2574,7 +2605,11 @@ void webPrintHeader(void){
   client.print(PASSKEY);
   client.print(F("/"));
 #endif
-  client.println(F("'>BSB-LAN Web</A></h1></center>"));
+  if(bsb_error >=6700 && bsb_error <= 6799) {
+    client.println(F("'><span style='background-color:red;'>BSB-LAN Web</span></A></h1></center>"));
+  } else {
+    client.println(F("'>BSB-LAN Web</A></h1></center>"));
+  }
   client.print(F("<table width=80% align=center><tr bgcolor=#f0f0f0><td width=20% align=center><a href='/"));
 #ifdef PASSKEY
   client.print(PASSKEY);
@@ -2647,6 +2682,15 @@ void webPrintHeader(void){
  * *************************************************************** */
 void webPrintFooter(void){
   client.println(F("</td></tr></table>"));
+  client.println(F("<hr style='width:80%; border:1px solid #f0f0f0;'/>"));
+  client.println("<div style='text-align: center;'>");
+#ifdef IPWE
+  client.println(F("<a href='/ipwe.cgi'>IPWE</a> "));
+#endif
+#ifdef FAVORITES
+  client.println(F(" <a href='/F'>Favorites</a>"));
+#endif
+client.println("</div>");
   client.println(F("</body>"));
   client.println(F("</html>"));
   client.println();
@@ -3644,6 +3688,13 @@ char* query(int line_start  // begin at this line (ProgNr)
 //    client.println(F("<p><form><table>")); // yes, begin HTML paragraph
   }
   for(line=line_start;line<=line_end;line++){
+
+#ifdef HIDE_PARAMETERS
+    if(!no_print && hide_contains_parameter(line)) {
+      continue; // skip unsupported parameter
+    }
+#endif
+
     outBufclear();
     i=findLine(line,idx,&c);
 
@@ -3675,6 +3726,7 @@ char* query(int line_start  // begin at this line (ProgNr)
 
               // Decode the rcv telegram and send it to the PC serial interface
               pvalstr = printTelegram(msg, line);
+              if(!monitor) DebugOutput.print(F("                      "));//test   "Date Time - "
               Serial.print(F("#"));
               Serial.print(line);
               Serial.print(F(": "));
@@ -3742,24 +3794,49 @@ char* query(int line_start  // begin at this line (ProgNr)
     if(outBufLen>0){
       if (!no_print) {  // display result in web client
         if (msg[4+(bus.getBusType()*4)] == TYPE_ERR) {
+#ifdef HIDE_PARAMETERS
+          hide_add_parameter(line); // remember unsupported parameter
+          if(hide_enabled) continue;
+#endif
 #ifdef HIDE_UNKNOWN
           continue;
 #endif
           client.println(F("<tr style='color: #7f7f7f'><td>"));
         } else {
+
+        switch(decodedTelegram.error) {
+//        case TELEGRAM_ERROR_DECODING_ERROR:
+          case TELEGRAM_ERROR_UNKNOWN_COMMAND:
+          case TELEGRAM_ERROR_NOT_FOUND:
+//        case TELEGRAM_ERROR_NO_ENUM_STR:
+          case TELEGRAM_ERROR_UNKNOWN_TYPE:
+          case TELEGRAM_ERROR_PARAMETER_NOT_SUPPORTED:
+//        case TELEGRAM_ERROR_COMMON_LPB_BUS_ERROR:
+//        case TELEGRAM_ERROR_QUERY_FAILED:
+#ifdef HIDE_PARAMETERS
+            hide_add_parameter(line); // remember unsupported parameter/type/command/...
+            if(hide_enabled) continue;
+#endif
+#ifdef HIDE_UNKNOWN
+            continue;
+#endif
+            break;
+          default: break;// go ahead
+        }
+
           client.println(F("<tr><td>"));
         }
         client.print(outBuf);
 
         switch(decodedTelegram.error){
-          case 1: client.println(F(" - decoding error")); break;
-          case 2: client.println(F("unknown command")); break;
-          case 4: client.println(F(" - not found")); break;
-          case 8: client.println(F("no enum str")); break;
-          case 16: client.println(F(" - unknown type")); break;
-          case 32: client.println(F(" (parameter not supported)")); break;
-          case 64: client.println(F(" (bus error)")); break;
-          case 128: client.println(F("query failed")); break;
+          case TELEGRAM_ERROR_DECODING_ERROR:          client.println(F(" - decoding error")); break;
+          case TELEGRAM_ERROR_UNKNOWN_COMMAND:         client.println(F("unknown command")); break;
+          case TELEGRAM_ERROR_NOT_FOUND:               client.println(F(" - not found")); break;
+          case TELEGRAM_ERROR_NO_ENUM_STR:             client.println(F("no enum str")); break;
+          case TELEGRAM_ERROR_UNKNOWN_TYPE:            client.println(F(" - unknown type")); break;
+          case TELEGRAM_ERROR_PARAMETER_NOT_SUPPORTED: client.println(F(" (parameter not supported)")); break;
+          case TELEGRAM_ERROR_COMMON_LPB_BUS_ERROR:    client.println(F(" (bus error)")); break;
+          case TELEGRAM_ERROR_QUERY_FAILED:            client.println(F("query failed")); break;
           default: client.println(F("")); break;
         }
 
@@ -3793,8 +3870,11 @@ char* query(int line_start  // begin at this line (ProgNr)
         client.println(F("</td><td>"));
         if (msg[4+(bus.getBusType()*4)] != TYPE_ERR && type != VT_UNKNOWN) {
           if(type == VT_ENUM || type == VT_CUSTOM_ENUM || type == VT_BIT || type == VT_ONOFF || type == VT_YESNO ) {
-
-            client.print(F("<select "));
+            if(decodedTelegram.readonly==0) {
+              client.print(F("<select "));
+            } else {
+              client.print(F("<select disabled='disabled' "));
+            }
             if (type == VT_BIT) {
               client.print(F("multiple "));
             }
@@ -3870,7 +3950,11 @@ char* query(int line_start  // begin at this line (ProgNr)
 
             client.print(F("</select></td><td>"));
             if ((flags & FL_RONLY) != FL_RONLY) {
-              client.print(F("<input type=button value='Set' onclick=\"set"));
+              if(decodedTelegram.readonly==0) {
+                client.print(F("<input type=button value='Set' onclick=\"set"));
+              } else {
+                client.print(F("<input disabled='disabled' type=button value='Set' onclick=\"set"));
+              }
               if (type == VT_BIT) {
                 client.print(F("bit"));
               }
@@ -3879,7 +3963,11 @@ char* query(int line_start  // begin at this line (ProgNr)
               client.print(F(")\">"));
             }
           } else {
-            client.print(F("<input type=text id='value"));
+              if(decodedTelegram.readonly==0) {
+                client.print(F("<input type=text id='value"));
+              } else {
+                client.print(F("<input disabled='disabled' type=text id='value"));
+              }
             client.print(line);
             client.print(F("' VALUE='"));
 
@@ -4112,6 +4200,9 @@ void ds18b20(void) {
 } // --- ds18b20() ---
 #endif   // ifdef ONE_WIRE_BUS
 
+/**
+ * Get parameter description.
+ */
 char *lookup_descr(uint16_t line) {
   int i=findLine(line,0,NULL);
   if (i<0) {                    // Not found (for this heating system)?
@@ -5364,7 +5455,11 @@ uint8_t pps_offset = 0;
 #endif
 
         // Answer to unknown requests
+#ifdef HIDE_PARAMETERS
+        if(!isdigit(p[1]) && strchr("ABCDEFGHIJKLMNOPQRSTUVWXYZ",p[1])==NULL){
+#else
         if(!isdigit(p[1]) && strchr("ABCDEGHIJKLMNOPQRSTUVWXY",p[1])==NULL){
+#endif
           webPrintHeader();
           webPrintFooter();
           break;
@@ -5377,6 +5472,85 @@ uint8_t pps_offset = 0;
           httpflags |= 128;
         }
 #endif
+
+#ifdef HIDE_PARAMETERS
+        if(p[1]=='Z') { // clear/print ignored parameters
+          webPrintHeader();
+          if(hide_parameters != NULL) {
+            client.println(F("Ignorierte Parameter:"));
+            client.println(F("<ol>"));
+	          for (int i = 0; i <= hide_position; i++) {
+                if(hide_parameters[i]<=NO_PARAMETER) continue;
+                client.print(F("<li>"));
+                client.print(hide_parameters[i]);
+                client.println(F(" - "));
+                client.print(lookup_descr(hide_parameters[i]));
+                client.println(F("</li>"));
+            }
+            client.println(F("</ol>"));
+          }
+          if(p[2]=='D') {
+            hide_clear_parameter();
+//            client.println(F(MENU_...));
+            client.println(F("Ignorierte Parameter zurückgesetzt"));
+          }
+          webPrintFooter();
+          break;
+        } // Z - clear/print ignored parameters
+#endif // HIDE_PARAMETERS
+
+#ifdef FAVORITES
+	      if (p[1] == 'F') {  // show/add/remove favourites
+	      	// TODO: change favourites:
+	      	// X add: +<progNo>(,+<progNo>)*
+	      	// X remove: -<progNo>(,-<progNo>)*
+	      	// - set: =<progNo>(,=<progNo>)*  ;  remove all: =
+	      	// or a combination of +-=
+	      	int max = sizeof(favourites) / sizeof(favourites[0]);
+	      	bool done = false;
+	      	int favourite = NO_PARAMETER;
+	      	webPrintHeader();
+	      	if (p[2] == '\0') {
+	      		// print favorites
+	      		for (int i = 0; i < max; i++) {
+              if(favourites[i] <= NO_PARAMETER) continue;
+	      			query(favourites[i], favourites[i], false);
+	      		}
+	      	}
+	      	else if (p[2] == '+') {
+	      		// add favorite
+	      		favourite = getReqNumber(p+3);
+	      		if (favourite >= 1) {
+	      			for (int i = 0; i < max; i++) {
+	      				if (favourites[i] <= NO_PARAMETER) {
+	      					favourites[i] = favourite;
+	      					done = true;
+	      					client.println(F("Favorit hinzugefügt."));
+	      					break;
+	      				}
+	      			}
+	      		}
+	      		if (!done) client.println(F("Favorit nicht hinzugefügt!"));
+	      	}
+	      	else if (p[2] == '-') {
+	      		// remove favorite
+            favourite = getReqNumber(p+3);
+	      		if (favourite >= 0) {
+	      			for (int i = 0; i < max; i++) {
+	      				if (favourites[i] == favourite) {
+	      					favourites[i] = NO_PARAMETER;
+	      					done = true;
+	      					client.println(F("Favorit entfernt."));
+	      					break;
+	      				}
+	      			}
+	      		}
+	      		if (!done) client.println(F("Favorit nicht entfernt!"));
+	      	}
+	      	webPrintFooter();
+	      	break;
+        } // F - show/add/removes
+#endif // FAVORITES
 
         // setting verbosity level
         if(p[1]=='V'){
@@ -5503,6 +5677,11 @@ uint8_t pps_offset = 0;
           int16_t cat_min = -1, cat_max = -1;
           strcpy_P(formatbuf, PSTR(K_FORMAT_TBL));
           for(int cat=0;cat<CAT_UNKNOWN;cat++){
+#ifdef HIDE_CATEGORY
+            if (p[2]!='A' && ignoreCategory(cat) == true) {
+              continue; // skip unsupported category
+            }
+#endif
             outBufclear();
             if ((bus.getBusType() != BUS_PPS) || (bus.getBusType() == BUS_PPS && cat == CAT_PPS)) {
 #if defined(__SAM3X8E__)
@@ -6320,6 +6499,7 @@ uint8_t pps_offset = 0;
           client.println(ip);
           client.println(F("<BR>"));
 */
+          // avarage parameters
           client.println(F(MENU_TEXT_AVT ": <BR>"));
           for (int i=0; i<numAverages; i++) {
             if (avg_parameters[i] > 0) {
@@ -6332,6 +6512,7 @@ uint8_t pps_offset = 0;
           client.println(F("<BR>"));
 
           #ifdef LOGGER
+          // logging parameters
           client.println(F(MENU_TEXT_LGP " "));
           client.print(log_interval);
           client.println(F(" " MENU_TEXT_SEC ": <BR>"));
@@ -6397,7 +6578,64 @@ uint8_t pps_offset = 0;
               client.println(F("<BR>"));
             }
           }
-          #endif
+          #endif // LOGGER
+#ifdef FAVORITES
+        client.println(F("<p>"));
+        client.print(F("Favoriten:"));
+        client.println(F("<BR>"));
+        size_t fav_max = sizeof(favourites) / sizeof(favourites[0]);
+	      for (int i = 0; i < fav_max; i++) {
+          if(favourites[i] <= NO_PARAMETER) continue;
+	      	client.print(favourites[i]);
+          client.print(F(" - "));
+          client.print(lookup_descr(favourites[i]));
+	      	client.println(F("<BR>"));
+	      }
+	      client.println(F("</p>"));
+#endif // FAVORITES
+
+#ifdef HIDE_CATEGORY
+        client.println(F("<p>"));
+        client.print(F("Ausgelassene Kategorien:"));
+        client.println(F("<BR>"));
+        size_t cat_max = sizeof(ignore_categories) / sizeof(ignore_categories[0]);
+	      for (int i = 0; i < cat_max; i++) {
+          if(ignore_categories[i] <= NO_PARAMETER) continue;
+	      	// client.print(ignore_categories[i]);
+          // client.print(F(" - "));
+          //client.print(lookup_descr(ignore_categories[i]));
+          outBufclear();
+          printENUM(pgm_get_far_address(ENUM_CAT), sizeof(ENUM_CAT), ignore_categories[i], 1);
+          DebugOutput.println(); // because DebugOutput.prin in printENUM
+          client.println(outBuf);
+	      	client.println(F("<BR>"));
+	      }
+        client.println(F("</p>"));
+#endif // HIDE_CATEGORY
+
+#ifdef HIDE_PARAMETERS
+        client.println(F("<p>"));
+        client.print(F("Ausgelassene Parameter:"));
+        client.println(F("<BR>"));
+        size_t param_max = sizeof(ignore_parameters) / sizeof(ignore_parameters[0]);
+	      for (int i = 0; i < param_max; i++) {
+          if(ignore_parameters[i] <= NO_PARAMETER) continue;
+	      	client.print(ignore_parameters[i]);
+          client.print(F(" - "));
+          client.print(lookup_descr(ignore_parameters[i]));
+	      	client.println(F(" (static)" "<BR>"));
+	      }
+        if(hide_enabled) {
+  	      for (int i = 0; i < hide_position; i++) {
+            if(hide_parameters[i] <= NO_PARAMETER) continue;
+	        	client.print(hide_parameters[i]);
+            client.print(F(" - "));
+            client.print(lookup_descr(hide_parameters[i]));
+	      	  client.println(F("<BR>"));
+	        }
+        }
+        client.println(F("</p>"));
+#endif //HIDE_PARAMETERS
 
           client.println(F("<BR>"));
           if(!(httpflags & 128)) webPrintFooter();
@@ -6415,7 +6653,7 @@ uint8_t pps_offset = 0;
 #endif
 
           break;
-        }
+        } // dump configuration
         if (p[1]=='L' && p[2]=='B' && p[3]=='='){
           if (p[4]=='1') {
             log_bc_only=1;
@@ -6562,7 +6800,7 @@ uint8_t pps_offset = 0;
         int end=-1;
         range = strtok(p,"/");
         while(range!=0){
-          if(range[0]=='T'){
+          if(range[0]=='T'){ // Sensors
 #ifdef ONE_WIRE_BUS
             ds18b20();
 #endif
@@ -6741,7 +6979,7 @@ uint8_t pps_offset = 0;
             client.print(pin);
             client.print(F(": "));
             client.print(val!=LOW?F("1"):F("0"));
-          }else if(range[0]=='B'){
+          }else if(range[0]=='B'){ // reset furnace
             if(range[1]=='0'){ // reset furnace duration
               client.println(F(MENU_TEXT_BRS ".<br>"));
               brenner_duration=0;
@@ -6772,7 +7010,7 @@ uint8_t pps_offset = 0;
               client.println(F("</td></tr>"));
             }
           }else{
-            if(range[0]=='K'){
+            if(range[0]=='K'){ // list category parameters
               uint8_t cat,search_cat;
               uint16_t line;
               int i;
@@ -6815,11 +7053,25 @@ uint8_t pps_offset = 0;
               start=atoi(line_start);
               end=atoi(line_end);
             }
+#ifdef HIDE_PARAMETERS
+            // K...A => list all parameter
+            for(int i=1; i<16;i++) {
+              if(range[i]==0) {
+                if(range[i-1]=='A') {
+                  hide_enabled = false; // disable hide parameter temporarily
+                }
+                break;
+              }
+            }
+#endif
             query(start,end,0);
+#ifdef HIDE_PARAMETERS
+            hide_enabled = true;
+#endif
           }
 
           range = strtok(NULL,"/");
-        } // endwhile
+        } // endwhile print queries
         webPrintFooter();
         break;
       } // endif, client available
