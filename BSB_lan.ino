@@ -371,7 +371,7 @@
 #include "src/BSB/bsb.h"
 #include "BSB_lan_config.h"
 #ifdef USE_FILTERED
-#include USE_FILTERED
+#include "BSB_lan_defs_filtered.h"
 #else
 #include "BSB_lan_defs.h"
 #endif
