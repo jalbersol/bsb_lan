@@ -8,7 +8,7 @@ const int NO_PARAMETER = -1;
 bool hide_enabled = true;
 
 size_t hide_size = 128;
-int *hide_parameters = NULL;
+int *parameters_skip = NULL;
 int hide_position = 0;
 
 void hide_clear_parameter()
@@ -17,8 +17,8 @@ void hide_clear_parameter()
 	hide_position = 0;
 	hide_size = 0;
 	DebugOutput.print(F(" -> Hide: Forget unsupported parameters "));
-	free(hide_parameters);
-	hide_parameters = NULL;
+	free(parameters_skip);
+	parameters_skip = NULL;
 	hide_size = 128;
 	hide_enabled = true;
 }
@@ -32,10 +32,10 @@ void hide_add_parameter(int parameter)
 	DebugOutput.print(" #");
 	DebugOutput.println(hide_position + 1);
 
-	size_t not_ignore_size = sizeof(not_ignore_parameters) / sizeof(not_ignore_parameters[0]);
-	for (int i = 0; i < not_ignore_size; i++)
+	size_t parameters_keep_len = sizeof(parameters_keep) / sizeof(parameters_keep[0]);
+	for (int i = 0; i < parameters_keep_len; i++)
 	{
-		if (not_ignore_parameters[i] == parameter)
+		if (parameters_keep[i] == parameter)
 		{
 			DebugOutput.print(F(" -> Hide: Not ignored parameter "));
 			DebugOutput.println(parameter);
@@ -43,12 +43,12 @@ void hide_add_parameter(int parameter)
 		}
 	}
 
-	if (!hide_parameters) {
+	if (!parameters_skip) {
 		// initialize array
 		DebugOutput.println(F(" -> Hide: Initialize memory"));
-		hide_parameters = (int *)calloc(hide_size, sizeof(int));
+		parameters_skip = (int *)calloc(hide_size, sizeof(int));
 		for(int i=0; i<hide_size;i++) {
-			hide_parameters[i] = NO_PARAMETER;
+			parameters_skip[i] = NO_PARAMETER;
 		}
 		hide_position = 0;
 		hide_enabled = true;
@@ -57,15 +57,15 @@ void hide_add_parameter(int parameter)
 		hide_enabled = false;
 		size_t hide_size_old = hide_size;
 		size_t hide_size_new = hide_size_old + 64;
-		int *hide_parameters_old = hide_parameters;
-		hide_parameters = (int *)calloc(hide_size_new, sizeof(int));
-		if (hide_parameters)
+		int *parameters_skip_old = parameters_skip;
+		parameters_skip = (int *)calloc(hide_size_new, sizeof(int));
+		if (parameters_skip)
 		{
 			for(int i = hide_size_old+1; i<hide_size_new;i++) { // init. new memory
-				hide_parameters[i] = NO_PARAMETER;
+				parameters_skip[i] = NO_PARAMETER;
 			}
-			memcpy(hide_parameters, hide_parameters_old, hide_size_old * sizeof(int));
-			free(hide_parameters_old);
+			memcpy(parameters_skip, parameters_skip_old, hide_size_old * sizeof(int));
+			free(parameters_skip_old);
 			hide_size = hide_size_new;
 			hide_enabled = true;
 			DebugOutput.print(F(" -> Hide: Resize memory to "));
@@ -78,15 +78,15 @@ void hide_add_parameter(int parameter)
 		}
 	}
 	// add parameter
-	hide_parameters[hide_position++] = parameter;
+	parameters_skip[hide_position++] = parameter;
 }
 
 bool hide_contains_parameter(int parameter)
 {
-	size_t not_ignore_size = sizeof(not_ignore_parameters) / sizeof(not_ignore_parameters[0]);
-	for (int i = 0; i < not_ignore_size; i++)
+	size_t parameters_keep_len = sizeof(parameters_keep) / sizeof(parameters_keep[0]);
+	for (int i = 0; i < parameters_keep_len; i++)
 	{
-		if (not_ignore_parameters[i] == parameter)
+		if (parameters_keep[i] == parameter)
 		{
 			DebugOutput.print(F(" -> Hide: Not ignored parameter "));
 			DebugOutput.println(parameter);
@@ -94,10 +94,10 @@ bool hide_contains_parameter(int parameter)
 		}
 	}
 
-	size_t ignore_size = sizeof(ignore_parameters) / sizeof(ignore_parameters[0]);
-	for (int i = 0; i < ignore_size; i++)
+	size_t parameters_hide_len = sizeof(parameters_hide) / sizeof(parameters_hide[0]);
+	for (int i = 0; i < parameters_hide_len; i++)
 	{
-		if (ignore_parameters[i] == parameter)
+		if (parameters_hide[i] == parameter)
 		{
 			DebugOutput.print(F(" -> Hide: Skip ignored parameter "));
 			DebugOutput.println(parameter);
@@ -106,10 +106,10 @@ bool hide_contains_parameter(int parameter)
 	}
 
 	if(!hide_enabled) return false;
-	if (!hide_parameters) return false;
+	if (!parameters_skip) return false;
 
 	for (int i = 0; i < hide_size; i++) {
-		if (hide_parameters[i] == parameter) {
+		if (parameters_skip[i] == parameter) {
 			DebugOutput.print(F(" -> Hide: Skip unsopported parameter "));
 			DebugOutput.println(parameter);
 			return true;
@@ -120,13 +120,13 @@ bool hide_contains_parameter(int parameter)
 }
 #endif // HIDE_PARAMETERS
 
-#ifdef HIDE_CATEGORY
+#ifdef HIDE_CATEGORIES
 boolean ignoreCategory(int category)
 {
-	size_t length = sizeof(ignore_categories) / sizeof(ignore_categories[0]);
+	size_t length = sizeof(categories_hide) / sizeof(categories_hide[0]);
 	for (int i = 0; i < length; i++)
 	{
-		if (ignore_categories[i] == category)
+		if (categories_hide[i] == category)
 		{
 			DebugOutput.print(F(" -> Skip category "));
 			DebugOutput.println(category);
@@ -135,7 +135,7 @@ boolean ignoreCategory(int category)
 	}
 	return false;
 }
-#endif // HIDE_CATEGORY
+#endif // HIDE_CATEGORIES
 
 #ifdef FAVORITES
 int getReqNumber(char *p)

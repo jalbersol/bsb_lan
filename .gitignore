@@ -1,9 +1,11 @@
 .gitignore
 .gitattributes
 .DS_Store
+.vscode/
 arduino.sh
 due.sh
 build/
+tmp/
 BSB_lan_config.h
 BSB_lan_custom.h
 conv-bf-log.pl
@@ -13,6 +15,8 @@ src/BSB/BSBSoftwareSerial.h.old
 *.txt
 *.csv
 *.bak
+*.log
+*~
 defs-brute-force-*.h
 check-existing.pl
 remove_doubles.pl
@@ -21,4 +25,3 @@ replace_defs.pl
 replace_enums.pl
 tidy_enums.pl
 localization/conv-csv.pl
-.*.sh

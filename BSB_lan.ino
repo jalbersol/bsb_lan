@@ -57,6 +57,23 @@
  *       0.44  - 11.05.2020
  *
  * Changelog:
+ *       version 0.44+
+ *        - Added the ability to hide unsupported heater categories
+ *          -- /KA list all categories include hidden ones
+ *        - Added favorites:
+ *          -- /F list favorite parameters
+ *          -- /F+n add new favorite
+ *          -- /F-n remove existing favorite
+ *        - Added the ability to hide unsupported heater parameters
+ *          -- /Z list unsupported parameters
+ *          -- /ZD clear unsupported parameters
+ *          -- /K<n>A list all parameters include hidden ones
+ *        - Added HTD11 temperature and humidity sensor support
+ *        - Added malfunction detection with auto heater reset and/or buzzer
+ *        - Reduce space by removoing LBS/PPS stuff (define NO_LBS and/or NO_PPS)
+ *        - Skip EEPROM dump (define NO_EEPROM_DUMP)
+ *        - Fixed favicon w/o web server
+ *        - Added Response-Header "Connection: close" for a more stable connection (Chrome)
  *       version 0.44
  *        - Added webserver functionality via SD card and various other improvements from GitHub user dukess
  *        - Added JSON output for MQTT
@@ -353,7 +370,11 @@
 //#include "src/BSB/BSBSoftwareSerial.h"
 #include "src/BSB/bsb.h"
 #include "BSB_lan_config.h"
+#ifdef USE_FILTERED
+#include USE_FILTERED
+#else
 #include "BSB_lan_defs.h"
+#endif
 
 #include <avr/pgmspace.h>
 //#include <avr/wdt.h>
@@ -520,8 +541,14 @@ float *avgValues_Current = new float[numAverages];
 int avgCounter = 1;
 int loopCount = 0;
 
-bool bsb_error = false; // received error code (6700...6799)
-int bsb_okay = 0;
+uint16_t heater_error_msg = 0;
+uint16_t heater_okay_msg = 0;
+boolean heater_malfunction = false;
+uint16_t heater_malfunctions = 0;
+unsigned long heater_last_reset = 0L;
+uint16_t heater_resets = 0;
+uint32_t heater_error_msg_total = 0;
+uint32_t heater_okay_msg_total = 0;
 
 const int TELEGRAM_ERROR_OKAY = 0;   // ok
 const int TELEGRAM_ERROR_DECODING_ERROR = 1;   // decoding error
@@ -2024,25 +2051,43 @@ char *printTelegram(byte* msg, int query_line) {
 #endif
 */
 
-  DebugOutput.print(GetDateTime(date));//test
-  DebugOutput.print(F(" - "));//test
+// HEIZ->ALL  INF 10103 Benutzerdefiniert -  INFO HK2 - TBD: 00 00 FF FF FF FF FF FF 00 00
+// DC 80 7F 15 02 2E 00 02 11 00 00 FF FF FF FF FF FF 00 00 F8 F1
+  if(msg[0]==0xdc  && msg[1]==0x80  && msg[2]==0x7f  && msg[3]==0x15  &&
+     msg[4]==0x02  && msg[5]==0x2e  && msg[6]==0x00  && msg[7]==0x02  &&
+     msg[8]==0x11  && msg[9]==0x00  && msg[10]==0x00 && msg[11]==0xff &&
+     msg[12]==0xff && msg[13]==0xff && msg[14]==0xff && msg[15]==0xff &&
+     msg[16]==0xff && msg[17]==0x00 && msg[18]==0x00 && msg[19]==0xf8 &&
+     msg[20]==0xf1) {
+    // Heizkreis 2 Meldungen überspringen
+    return;
+  }
 
+  DebugOutput.print(GetDateTime(date));//HACK:
+  DebugOutput.print(F(" - "));//HACK:
+
+  byte tel_type = -1;
   byte src = -1;
   byte dst = -1;
   byte msg_type = msg[4+(bus.getBusType()*4)];
+  uint16_t prognr = -1;
 
   if (bus.getBusType() != BUS_PPS) {
+    tel_type = msg[0];
     // source
-    src = msg[1+(bus.getBusType()*2)];
+    src = msg[1+(bus.getBusType()*2)]; // BBS = 1, LPB = 3
     dst = msg[2];
     SerialPrintAddr(src); // source address
     DebugOutput.print(F("->"));
     SerialPrintAddr(dst); // destination address
+    src = src & 0x7F; // ADDR_...
+    dst = dst & 0x7F; // ADDR_...
     DebugOutput.print(F(" "));
     // msg[3] contains the message length, not handled here
     SerialPrintType(msg_type); // message type, human readable
     DebugOutput.print(F(" "));
   } else {
+#ifndef NO_PPS
     if (!monitor) {
       switch (msg[0]) {
         case 0x1D: DebugOutput.print(F("INF HEIZ->QAA ")); break;
@@ -2052,6 +2097,7 @@ char *printTelegram(byte* msg, int query_line) {
         default: break;
       }
     }
+#endif // NO_PPS
   }
 
   uint32_t cmd = 0;
@@ -2062,6 +2108,7 @@ char *printTelegram(byte* msg, int query_line) {
       cmd=(uint32_t)msg[5]<<24 | (uint32_t)msg[6]<<16 | (uint32_t)msg[7] << 8 | (uint32_t)msg[8];
     }
   }
+#ifndef NO_LPB
   if (bus.getBusType() == BUS_LPB) {
     if(msg[8]==TYPE_QUR || msg[8]==TYPE_SET){ //QUERY and SET: byte 9 and 10 are in reversed order
       cmd=(uint32_t)msg[10]<<24 | (uint32_t)msg[9]<<16 | (uint32_t)msg[11] << 8 | (uint32_t)msg[12];
@@ -2069,12 +2116,15 @@ char *printTelegram(byte* msg, int query_line) {
       cmd=(uint32_t)msg[9]<<24 | (uint32_t)msg[10]<<16 | (uint32_t)msg[11] << 8 | (uint32_t)msg[12];
     }
   }
+#endif // NO_LPB
 //  uint8_t pps_cmd = msg[1 + (msg[0] == 0x17 && *PPS_write_enabled != 1)];
   uint8_t pps_cmd = msg[1];
+#ifndef NO_PPS
   if (bus.getBusType() == BUS_PPS) {
     cmd = 0x2D000000 + query_line - 15000;    // PPS commands start at parameter no. 15000
     cmd = cmd + (pps_cmd * 0x10000);
   }
+#endif // NO_PPS
   // search for the command code in cmdtbl
   int i=0;        // begin with line 0
   int save_i=0;
@@ -2084,13 +2134,16 @@ char *printTelegram(byte* msg, int query_line) {
   int line = 0, match_line = 0;
   c=get_cmdtbl_cmd(i);
   line = get_cmdtbl_line(i);
-
+//DebugOutput.print(F("  (line:"));DebugOutput.print(line);DebugOutput.print(F(") "));
   while(c!=CMD_END){
-    if((c == cmd || (line >= 15000 && ((c & 0x00FF0000) >> 16) == pps_cmd && bus.getBusType() == BUS_PPS)) && (query_line == -1 || line == query_line)){
+    if((c == cmd
+        || (line >= 15000 && ((c & 0x00FF0000) >> 16) == pps_cmd && bus.getBusType() == BUS_PPS))
+        && (query_line == -1 || line == query_line)){
       uint8_t dev_fam = get_cmdtbl_dev_fam(i);
       uint8_t dev_var = get_cmdtbl_dev_var(i);
       uint8_t dev_flags = get_cmdtbl_flags(i);
       match_line = get_cmdtbl_line(i);
+//DebugOutput.print(F("  (match_line:"));DebugOutput.print(match_line);DebugOutput.print(F(") "));
       if ((dev_fam == my_dev_fam || dev_fam == 255) && (dev_var == my_dev_var || dev_var == 255)) {
         if (dev_fam == my_dev_fam && dev_var == my_dev_var) {
           if ((dev_flags & FL_NO_CMD) == FL_NO_CMD) {
@@ -2138,7 +2191,7 @@ char *printTelegram(byte* msg, int query_line) {
     if (line > match_line && known == false) {
       score = 0;
     }
-  }
+  } // while
   if(!known){                          // no hex code match
     // Entry in command table is "UNKNOWN" (0x00000000)
     if (bus.getBusType() != BUS_PPS) {
@@ -2152,6 +2205,7 @@ char *printTelegram(byte* msg, int query_line) {
     i = save_i;
     // Entry in command table is a documented command code
     uint16_t line=get_cmdtbl_line(i);
+    prognr=line;
     printLineNumber(line);             // the ProgNr
     DebugOutput.print(F(" "));
     outBufLen+=sprintf(outBuf+outBufLen," ");
@@ -2187,20 +2241,24 @@ char *printTelegram(byte* msg, int query_line) {
       data_len=msg[bus.getLen_idx()]-7;      // for yet unknow telegram types 0x12 to 0x15
     }
   }
-  if (bus.getBusType() == BUS_LPB) {
+#ifndef NO_LPB
+  else if (bus.getBusType() == BUS_LPB) {
     if (msg_type < 0x12) {
       data_len=msg[bus.getLen_idx()]-14;     // get packet length, then subtract
     } else {
       data_len=msg[bus.getLen_idx()]-7;      // for yet unknow telegram types 0x12 to 0x15
     }
   }
-  if (bus.getBusType() == BUS_PPS) {
+#endif // NO_LPB
+#ifndef NO_PPS
+  else if (bus.getBusType() == BUS_PPS) {
     if (msg[0] != 0x1E) {
       data_len = 3;
     } else {
       data_len = 0; // Do not try to decode request telegrams coming from the heataer (0x1E)
     }
   }
+#endif // NO_PPS
   if(data_len < 0){
     DebugOutput.print(F("len ERROR "));
     DebugOutput.print(msg[bus.getLen_idx()]);
@@ -2299,7 +2357,7 @@ char *printTelegram(byte* msg, int query_line) {
               printFIXPOINT_BYTE_US(msg,data_len,div_operand,div_precision,div_unit);
               break;
             case VT_TEMP: // s16 / 64.0 - Wert als Temperatur interpretiert (RAW / 64)
-            case VT_SECONDS_WORD5: // u16  - Wert als Temperatur interpretiert (RAW / 2)
+            case VT_SECONDS_WORD5: // u16  - Wert als Sekunden interpretiert (RAW / 5)
             case VT_TEMP_WORD: // s16  - Wert als Temperatur interpretiert (RAW)
             case VT_TEMP_WORD5_US: // s16  - Wert als Temperatur interpretiert (RAW / 2)
             case VT_CELMIN: // u16 / °Cmin
@@ -2539,22 +2597,13 @@ char *printTelegram(byte* msg, int query_line) {
         decodedTelegram.error = 2;
       }
     }
-    if(dst==ADDR_HEIZ && src==ADDR_DISP && msg_type == TYPE_ANS && cmd==6700) {
-      bsb_error = true;
-      bsb_okay = 0;
-    } else {
-      bsb_okay++;
-      if(bsb_okay>30) {
-        bsb_error = false;
-      }
-    }
-
+    // Error?
   }
   if (bus.getBusType() != BUS_PPS || (bus.getBusType() == BUS_PPS && !monitor)) {
     DebugOutput.println();
   }
   if(verbose){
-    if(!monitor) DebugOutput.print(F("                      "));//test   "Date Time - "
+    if(!monitor) DebugOutput.print(F("                      "));//HACK: "Date Time - "
     if (bus.getBusType() != BUS_PPS) {
       SerialPrintRAW(msg,msg[bus.getLen_idx()]+bus.getBusType());
     } else {
@@ -2562,8 +2611,150 @@ char *printTelegram(byte* msg, int query_line) {
     }
     DebugOutput.println();
   }
+/*
+ DebugOutput.print("  prognr: "); DebugOutput.println(prognr);
+ DebugOutput.print("  SRC: "); DebugOutput.println(src);
+ DebugOutput.print("  DST: "); DebugOutput.println(dst);
+*/
+
+  /*
+   * Auto Heater Reset
+   */
+  if(src == ADDR_HEIZ && dst == ADDR_DISP && msg_type == TYPE_ANS && prognr == 6700) {
+//  || (tel_type == 0xDE && src == ADDR_HEIZ && dst == ADDR_ALL  && msg_type == TYPE_INF /*&& cmd <= 0*/)) {
+    // error message
+/*
+DebugOutput_tv(" - heater_malfunction: ", heater_malfunction);
+DebugOutput_tv(" - heater_error_msg: ", heater_error_msg);
+DebugOutput_tv(" - heater_okay_msg: ", heater_okay_msg);
+DebugOutput_tv(" - heater_malfunctions: ", heater_malfunctions);
+DebugOutput_tv(" - heater_last_reset: ", heater_last_reset);
+DebugOutput_tv(" - heater_resets: ", heater_resets);
+*/
+DebugOutput.print(F("    - "));
+DebugOutput.print(heater_malfunction);DebugOutput.print(F(" ("));
+DebugOutput.print(heater_error_msg);DebugOutput.print(F(" "));
+DebugOutput.print(heater_okay_msg);DebugOutput.print(F(") "));
+DebugOutput.print(heater_malfunctions);DebugOutput.print(F(" "));
+DebugOutput.print(heater_last_reset);DebugOutput.print(F(" "));
+DebugOutput.print(heater_resets);DebugOutput.println();
+
+    heater_error_msg++;
+    heater_error_msg_total++;
+    heater_okay_msg = 0;
+    verbose = 1;
+    DebugOutput.println(F(" => Error Message"));
+    if(heater_malfunction == false && heater_error_msg >= 10) {
+      // new malfunction
+      heater_malfunction = true;
+      heater_malfunctions++;
+      DebugOutput.println(F(" => MALFUNCTION"));
+    }
+    resetHeater();
+  } else {
+    // okay?
+    if((src == ADDR_HEIZ && dst == myAddr) || (src == myAddr && dst == ADDR_HEIZ)) {
+      // ignore communication between HEIZ and BBS_lan
+    } else {
+      if(heater_error_msg > 0) {
+/*
+DebugOutput_tv(" + heater_malfunction: ", heater_malfunction);
+DebugOutput_tv(" + heater_error_msg: ", heater_error_msg);
+DebugOutput_tv(" + heater_okay_msg: ", heater_okay_msg);
+DebugOutput_tv(" + heater_malfunctions: ", heater_malfunctions);
+DebugOutput_tv(" + heater_last_reset: ", heater_last_reset);
+DebugOutput_tv(" + heater_resets: ", heater_resets);
+*/
+DebugOutput.print(F("    + "));
+DebugOutput.print(heater_malfunction);DebugOutput.print(F(" ("));
+DebugOutput.print(heater_error_msg);DebugOutput.print(F(" "));
+DebugOutput.print(heater_okay_msg);DebugOutput.print(F(") "));
+DebugOutput.print(heater_malfunctions);DebugOutput.print(F(" "));
+DebugOutput.print(heater_last_reset);DebugOutput.print(F(" "));
+DebugOutput.print(heater_resets);DebugOutput.println();
+      }
+      // TODO: Only INF?
+      // HEIZ->DISP ANS 8310 Diag. Erzeuger Kesseltemp     ca all 10 seconds
+      if(heater_malfunction) {
+        DebugOutput.println(F("Okay Message"));
+#ifdef HEATER_BUZZER_PIN
+        // buzzer off
+        pinMode(HEATER_BUZZER_PIN, OUTPUT);
+        digitalWrite(HEATER_BUZZER_PIN, LOW);
+#endif
+      }
+      heater_okay_msg++;
+      heater_okay_msg_total++;
+      if(heater_okay_msg >= 10) {
+        //DebugOutput.println(F("No malfunction"));
+        heater_malfunction = false;
+        heater_error_msg = 0;
+      }
+    }
+  }
+
   return pvalstr;
 }
+
+/**
+ * Reset heater in case of an malfunction.
+ */
+#ifdef HEATER_RESET_PIN && HEATER_RESET_PIN > 0
+boolean resetHeater() {
+
+  if(!heater_malfunction) {
+    //DebugOutput.println(F("No error, no reset!"));
+    return;
+  }
+  if(millis() - heater_last_reset < 600000) { // min * 60 * 1000
+    DebugOutput.println(F("Min. delay between resets is 10 min!"));
+    return;
+  }
+
+#ifdef HEATER_BUZZER_PIN
+  boolean pin_okay = true;
+  for (int i=0; i < anz_ex_gpio; i++) {
+    if (HEATER_BUZZER_PIN == exclude_GPIO[i]) {
+      DebugOutput.println(F("Not allowed to use buzzer pin!"));
+      pin_okay = false;
+      break;
+    }
+  }
+  if(pin_okay) {
+      // buzzer on
+      pinMode(HEATER_BUZZER_PIN, OUTPUT);
+      digitalWrite(HEATER_BUZZER_PIN, HIGH);
+  }
+#endif.
+
+  for (int i=0; i < anz_ex_gpio; i++) {
+    if (HEATER_RESET_PIN == exclude_GPIO[i]) {
+      DebugOutput.println(F("Not allowed to use reset pin!"));
+      return false;
+    }
+  }
+
+  pinMode(HEATER_RESET_PIN, OUTPUT);
+  DebugOutput.println(F("=> HEATER RESET START"));
+  digitalWrite(HEATER_RESET_PIN, HIGH);
+#ifdef HEATER_RESET_TIME
+  delay(HEATER_RESET_TIME);
+#else
+  delay(1000);
+#endif
+  digitalWrite(HEATER_RESET_PIN, LOW);
+  DebugOutput.println(F("=> HEATER RESET END"));
+
+  heater_last_reset = millis();
+  heater_resets++;
+
+  heater_error_msg = 0;
+  heater_okay_msg = 0;
+  heater_malfunction = false;
+
+  return true;
+}
+#endif
 
 void printPStr(uint_farptr_t outstr, uint16_t outstr_len) {
   int htmlbuflen = 100;
@@ -2605,12 +2796,12 @@ void webPrintHeader(void){
   client.print(PASSKEY);
   client.print(F("/"));
 #endif
-  if(bsb_error >=6700 && bsb_error <= 6799) {
+  if(heater_malfunction) {
     client.println(F("'><span style='background-color:red;'>BSB-LAN Web</span></A></h1></center>"));
   } else {
     client.println(F("'>BSB-LAN Web</A></h1></center>"));
   }
-  client.print(F("<table width=80% align=center><tr bgcolor=#f0f0f0><td width=20% align=center><a href='/"));
+  client.print(F("<table align=center><tr bgcolor=#f0f0f0><td width=20% align=center><a href='/"));
 #ifdef PASSKEY
   client.print(PASSKEY);
   client.print(F("/"));
@@ -2664,7 +2855,7 @@ void webPrintHeader(void){
 
   client.print(F("<a href='" MENU_LINK_TOC "' target='new'>" MENU_TEXT_TOC "</a></td><td width=20% align=center><a href='" MENU_LINK_FAQ "' target='_new'>" MENU_TEXT_FAQ "</a></td>"));
 //  client.println(F("<td width=20% align=center><a href='http://github.com/fredlcore/bsb_lan' target='new'>GitHub Repo</a></td>"));
-  client.println(F("</tr></table><p></p><table align=center width=80%><tr><td>"));
+  client.println(F("</tr></table><p></p><table align=center><tr><td>"));
 
 } // --- webPrintHeader() ---
 
@@ -2682,7 +2873,7 @@ void webPrintHeader(void){
  * *************************************************************** */
 void webPrintFooter(void){
   client.println(F("</td></tr></table>"));
-  client.println(F("<hr style='width:80%; border:1px solid #f0f0f0;'/>"));
+  client.println(F("<hr/>"));
   client.println("<div style='text-align: center;'>");
 #ifdef IPWE
   client.println(F("<a href='/ipwe.cgi'>IPWE</a> "));
@@ -3394,6 +3585,16 @@ int set(int line      // the ProgNr of the heater parameter
       break;
 
     case VT_SECONDS_WORD5:
+      {
+      uint16_t t=atoi(val)*5;
+      if(val[0]!='\0'){
+        param[0]=0x01;
+        param[1]=(t >> 8);
+        param[2]= t & 0xff;
+      }                         // TODO: Do we need a disable section here as well?
+      param_len=3;
+      }
+      break;
     case VT_TEMP_WORD5_US:
       {
       uint16_t t=atoi(val)*2;
@@ -3977,8 +4178,11 @@ char* query(int line_start  // begin at this line (ProgNr)
               *colon_pos = '.';
             }
 */
-            if (type == VT_HOUR_MINUTES) {
+            if (type == VT_HOUR_MINUTES || type == VT_DATETIME) {
               client.print(pvalstr);
+            } else if (type == VT_TIMEPROG ) {
+                // not via input field
+                client.print(F("---"));
             } else {
               if  (pvalstr[2] == '-') {   // do not run strtod on disabled parameters (---)
                 client.print(F("---"));
@@ -4114,7 +4318,7 @@ void dht22(void) {
     outBufclear();
     for(i=0;i<numDHTSensors;i++){
 
-    int chk = DHT.read22(DHT_Pins[i]);
+    int chk = DHT.DHT_BUS_READ(DHT_Pins[i]);
     switch (chk) {
       case DHTLIB_OK:
       DebugOutput.print(F("OK,\t"));
@@ -4301,7 +4505,7 @@ void Ipwe() {
   // output of DHT sensors
   int numDHTSensors = sizeof(DHT_Pins) / sizeof(int);
   for(i=0;i<numDHTSensors;i++){
-    DHT.read22(DHT_Pins[i]);
+    DHT.DHT_BUS_READ(DHT_Pins[i]);
 
     float hum = DHT.humidity;
     float temp = DHT.temperature;
@@ -4391,6 +4595,7 @@ void InitMaxDeviceList() {
 
 uint16_t setPPS(uint8_t pps_index, uint16_t value) {
   uint16_t log_parameter = 0;
+#ifndef NO_PPS
   if (pps_values[pps_index] != value) {
     for (int i=0; i < numLogValues; i++) {
       if (log_parameters[i] == 15000 + pps_index) {
@@ -4400,6 +4605,7 @@ uint16_t setPPS(uint8_t pps_index, uint16_t value) {
     pps_values[pps_index] = value;
   }
   return log_parameter;
+#endif // NO_PPS
 }
 
 #if defined LOGGER || defined WEBSERVER
@@ -4681,6 +4887,7 @@ void loop() {
       } // endif, broadcasts
 
 // PPS-Bus handling
+#ifndef NO_PPS
       if (bus.getBusType() == BUS_PPS) {
         if (msg[0] == 0x17 && *PPS_write_enabled == 1) { // Send client data
           byte tx_msg[] = {0xFD, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
@@ -5105,7 +5312,7 @@ uint8_t pps_offset = 0;
         } // End parse PPS heating data
 
       } // End PPS-bus handling
-
+#endif // NO_PPS
     } // endif, GetMessage() returned True
 
    // At this point drop possible GetMessage() failures silently
@@ -5257,13 +5464,13 @@ uint8_t pps_offset = 0;
           if (dataFile) {
             transmitFile(dataFile);
             dataFile.close();
-            } else {
+            break;
+          }
+#endif
 #if defined(__SAM3X8E__)
           printPStr(favicon, sizeof(favicon));
 #else
           printPStr(pgm_get_far_address(favicon), sizeof(favicon));
-#endif
-            }
 #endif
           break;
         }
@@ -5476,15 +5683,15 @@ uint8_t pps_offset = 0;
 #ifdef HIDE_PARAMETERS
         if(p[1]=='Z') { // clear/print ignored parameters
           webPrintHeader();
-          if(hide_parameters != NULL) {
+          if(parameters_skip != NULL) {
             client.println(F("Ignorierte Parameter:"));
             client.println(F("<ol>"));
 	          for (int i = 0; i <= hide_position; i++) {
-                if(hide_parameters[i]<=NO_PARAMETER) continue;
+                if(parameters_skip[i]<=NO_PARAMETER) continue;
                 client.print(F("<li>"));
-                client.print(hide_parameters[i]);
+                client.print(parameters_skip[i]);
                 client.println(F(" - "));
-                client.print(lookup_descr(hide_parameters[i]));
+                client.print(lookup_descr(parameters_skip[i]));
                 client.println(F("</li>"));
             }
             client.println(F("</ol>"));
@@ -5677,7 +5884,7 @@ uint8_t pps_offset = 0;
           int16_t cat_min = -1, cat_max = -1;
           strcpy_P(formatbuf, PSTR(K_FORMAT_TBL));
           for(int cat=0;cat<CAT_UNKNOWN;cat++){
-#ifdef HIDE_CATEGORY
+#ifdef HIDE_CATEGORIES
             if (p[2]!='A' && ignoreCategory(cat) == true) {
               continue; // skip unsupported category
             }
@@ -6493,7 +6700,41 @@ uint8_t pps_offset = 0;
             client.print(mac[i], HEX);
             if(i != 5) client.print(F(":"));
           }
-          client.println(F("<BR><BR>"));
+          client.println(F("<BR>"));
+
+          client.println(F("Störmeldungen insgesamt: \n")); // TODO: Text
+          client.println(heater_error_msg_total);
+          client.println(F("<BR>"));
+
+          client.println(F("Nicht-Störmeldungen insgesamt: \n")); // TODO: Text
+          client.println(heater_okay_msg_total);
+          client.println(F("<BR>"));
+
+          client.println(F("Störung: \n")); // TODO: Text
+          client.println(heater_malfunction?F("<span style='background-color:yellow;'>JA</span>"):F("<span style='color:green;'>Nein</span>"));
+          client.println(F("<BR>"));
+
+          client.println(F("Störungen: \n")); // TODO: Text
+          client.println(heater_malfunctions);
+          client.println(F("<BR>"));
+
+          client.println(F("Störmeldungen: \n")); // TODO: Text
+          client.println(heater_error_msg);
+          client.println(F("<BR>"));
+
+          client.println(F("Nicht-Störmeldungen: \n")); // TODO: Text
+          client.println(heater_okay_msg);
+          client.println(F("<BR>"));
+
+          client.println(F("Heizung Resets: \n")); // TODO: Text
+          client.println(heater_resets);
+          client.println(F("<BR>"));
+
+          client.println(F("Letzter Reset: \n")); // TODO: Text
+          client.println(heater_last_reset);
+          client.println(F("<BR>"));
+
+          client.println(F("<BR>"));
 /*
           client.println(F("IP address: "));
           client.println(ip);
@@ -6594,43 +6835,43 @@ uint8_t pps_offset = 0;
 	      client.println(F("</p>"));
 #endif // FAVORITES
 
-#ifdef HIDE_CATEGORY
+#ifdef HIDE_CATEGORIES
         client.println(F("<p>"));
         client.print(F("Ausgelassene Kategorien:"));
         client.println(F("<BR>"));
-        size_t cat_max = sizeof(ignore_categories) / sizeof(ignore_categories[0]);
+        size_t cat_max = sizeof(categories_hide) / sizeof(categories_hide[0]);
 	      for (int i = 0; i < cat_max; i++) {
-          if(ignore_categories[i] <= NO_PARAMETER) continue;
-	      	// client.print(ignore_categories[i]);
+          if(categories_hide[i] <= NO_PARAMETER) continue;
+	      	// client.print(categories_hide[i]);
           // client.print(F(" - "));
-          //client.print(lookup_descr(ignore_categories[i]));
+          //client.print(lookup_descr(categories_hide[i]));
           outBufclear();
-          printENUM(pgm_get_far_address(ENUM_CAT), sizeof(ENUM_CAT), ignore_categories[i], 1);
+          printENUM(pgm_get_far_address(ENUM_CAT), sizeof(ENUM_CAT), categories_hide[i], 1);
           DebugOutput.println(); // because DebugOutput.prin in printENUM
           client.println(outBuf);
 	      	client.println(F("<BR>"));
 	      }
         client.println(F("</p>"));
-#endif // HIDE_CATEGORY
+#endif // HIDE_CATEGORIES
 
 #ifdef HIDE_PARAMETERS
         client.println(F("<p>"));
         client.print(F("Ausgelassene Parameter:"));
         client.println(F("<BR>"));
-        size_t param_max = sizeof(ignore_parameters) / sizeof(ignore_parameters[0]);
+        size_t param_max = sizeof(parameters_hide) / sizeof(parameters_hide[0]);
 	      for (int i = 0; i < param_max; i++) {
-          if(ignore_parameters[i] <= NO_PARAMETER) continue;
-	      	client.print(ignore_parameters[i]);
+          if(parameters_hide[i] <= NO_PARAMETER) continue;
+	      	client.print(parameters_hide[i]);
           client.print(F(" - "));
-          client.print(lookup_descr(ignore_parameters[i]));
+          client.print(lookup_descr(parameters_hide[i]));
 	      	client.println(F(" (static)" "<BR>"));
 	      }
         if(hide_enabled) {
   	      for (int i = 0; i < hide_position; i++) {
-            if(hide_parameters[i] <= NO_PARAMETER) continue;
-	        	client.print(hide_parameters[i]);
+            if(parameters_skip[i] <= NO_PARAMETER) continue;
+	        	client.print(parameters_skip[i]);
             client.print(F(" - "));
-            client.print(lookup_descr(hide_parameters[i]));
+            client.print(lookup_descr(parameters_skip[i]));
 	      	  client.println(F("<BR>"));
 	        }
         }
@@ -6641,6 +6882,7 @@ uint8_t pps_offset = 0;
           if(!(httpflags & 128)) webPrintFooter();
 
 #if defined(__AVR__)
+#ifndef NO_EEPROM_DUMP
           DebugOutput.println(F("EEPROM dump:"));
           for (uint16_t x=0; x<EEPROM.length(); x++) {
             uint8_t i = EEPROM.read(x);
@@ -6650,6 +6892,7 @@ uint8_t pps_offset = 0;
             DebugOutput.print(i, HEX);
             DebugOutput.print(F(" "));
           }
+#endif // NO_EEPROM_DUMP
 #endif
 
           break;
@@ -7217,7 +7460,7 @@ uint8_t pps_offset = 0;
           if (log_parameters[i] >= 20100 && log_parameters[i] < 20200) {
 #ifdef DHT_BUS
             int log_sensor = log_parameters[i] - 20100;
-            int chk = DHT.read22(DHT_Pins[log_sensor]);
+            int chk = DHT.DHT_BUS_READ(DHT_Pins[log_sensor]);
             DebugOutput.println(chk);
             float hum = DHT.humidity;
             float temp = DHT.temperature;
@@ -7427,7 +7670,7 @@ uint8_t pps_offset = 0;
 #ifdef DHT_BUS
           if (log_parameters[i] >= 20100 && log_parameters[i] < 20200) {
             int log_sensor = log_parameters[i] - 20100;
-            int chk = DHT.read22(DHT_Pins[log_sensor]);
+            int chk = DHT.DHT_BUS_READ(DHT_Pins[log_sensor]);
             DebugOutput.println(chk);
             float hum = DHT.humidity;
             float temp = DHT.temperature;

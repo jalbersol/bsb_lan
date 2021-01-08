@@ -1,3 +1,4 @@
+
 # New Features:
  - Favorite parameters
  - Auto-hide parameters if they are not supported by the heater.
