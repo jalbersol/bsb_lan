@@ -1769,6 +1769,7 @@ const char STR6650[] PROGMEM = STR6650_TEXT;
 const char STR6699[] PROGMEM = STR6699_TEXT;
 
 // Fehler
+const char STR6700[] PROGMEM = STR6700_TEXT;
 const char STR6705[] PROGMEM = STR6705_TEXT;
 const char STR6706[] PROGMEM = STR6706_TEXT;
 const char STR6710[] PROGMEM = STR6710_TEXT;
@@ -5446,6 +5447,7 @@ const char ENUM_ERROR[] PROGMEM_LATEST = {
 "\xa3 " ENUM_ERROR_a3_TEXT "\0"
 "\xa4 " ENUM_ERROR_a4_TEXT "\0"
 "\xa6 " ENUM_ERROR_a6_TEXT "\0"
+"\xa9 " ENUM_ERROR_a9_TEXT "\0"
 "\xab " ENUM_ERROR_ab_TEXT "\0"
 "\xac " ENUM_ERROR_ac_TEXT "\0"
 "\xad " ENUM_ERROR_ad_TEXT "\0"
@@ -6846,6 +6848,7 @@ PROGMEM_LATE const cmd_t cmdtbl1[]={
 {0x413D000E,  CAT_LPB,              VT_FP1    ,       6699,  STR6699,  0,                    NULL,         DEFAULT_FLAG, DEV_ALL}, // [0] - LPB - Software Version Einschub
 
 //Fehler
+{0x053D009A,  CAT_FEHLER,           VT_ERRORCODE,     6700,  STR6700,  0,                    NULL,         FL_RONLY,     DEV_098_100}, // like error code, but with more info LMU75: DC 80 0A 17 07 05 3D 00 9A 00 A9 06 00 08 00 00 00 00 00 00 00 D2 5D (A9 = "Sitherm Pro System")
 {0x053D009A,  CAT_FEHLER,           VT_UNKNOWN,       6700,  STR10200, 0,                    NULL,         FL_RONLY,     DEV_ALL}, // Brute force detected Command ID, data payload on LMU74.100A136: 00 00 00 00 00 00 00 00 00 00 00 00 / same on RVS43.222 // bytes 4 and 5 same as 053D000B, probably error log with some kind of date, error number and error origin (VT_LPBADDR)
 {0x053D006B,  CAT_FEHLER,           VT_UNKNOWN,       6701,  STR10200, 0,                    NULL,         FL_RONLY,     DEV_ALL}, // Brute force detected Command ID, data payload on LMU74.100A136: 00 00 / same on RVS43.222 // first byte error code, second byte FA Phase?
 {0x053D0099,  CAT_FEHLER,           VT_ERRORCODE,     6705,  STR6705,  sizeof(ENUM_SWCODE),  ENUM_SWCODE,  FL_RONLY,     DEV_ALL}, // Thision 6705 SW Diagnosecode [VT_ERRORCODE?]
@@ -6859,6 +6862,14 @@ PROGMEM_LATE const cmd_t cmdtbl1[]={
 {0x25050B10,  CAT_FEHLER,           VT_HOURS_SHORT,   6745,  STR6745,  0,                    NULL,         FL_RONLY,     DEV_ALL}, // Trinkwasserladung Alarm
 {0x693D0B67,  CAT_FEHLER,           VT_MINUTES_SHORT, 6746,  STR6746,  0,                    NULL,         FL_RONLY,     DEV_ALL}, // Vorlauftemp Kühlen 1 Alarm
 {0x053D06D3,  CAT_FEHLER,           VT_DATETIME,      6800,  STR6800,  0,                    NULL,         FL_RONLY,     DEV_ALL}, // [ ] - Fehler - Historie 1 Datum/Zeit
+
+// 6800/6801 = Historie 1
+//{0x053D06D3,  CAT_FEHLER,           VT_BYTE,          6800,  STR6800,  0,                    NULL,         FL_RONLY,     DEV_098_100}, // [ ] - WGB ProEvo 15C: Fehler Historie 1
+//  //{0x053D06D3,  CAT_FEHLER,           VT_ERRORCODE,     6805,  STR6805,  0,                    NULL,         FL_RONLY,     DEV_098_100}, // [ ] - WGB ProEvo 15C: Fehler SW Diagnosecode 1
+//  //{0x053D06D3,  CAT_FEHLER,           VT_BYTE,          6810,  STR6810,  0,                    NULL,         FL_RONLY,     DEV_098_100}, // [ ] - WGB ProEvo 15C: Fehler Historie 2
+//{0x053D06D3,  CAT_FEHLER,           VT_ERRORCODE,     6815,  STR6815,  0,                    NULL,         FL_RONLY,     DEV_098_100}, // [ ] - WGB ProEvo 15C: Fehler SW Diagnosecode 2
+//{0x053D06D3,  CAT_FEHLER,           VT_BYTE,          6820,  STR6820,  0,                    NULL,         FL_RONLY,     DEV_098_100}, // [ ] - WGB ProEvo 15C: Fehler Historie 3
+
 {0x053D2FF1,  CAT_FEHLER,           VT_BYTE,          6800,  STR6800_2,0,                    NULL,         FL_RONLY,     DEV_098_ALL}, // [ ] - THISION: Fehler Historie 1
 {0x053D0814,  CAT_FEHLER,           VT_ERRORCODE,     6801,  STR6801,  0,                    NULL,         FL_RONLY,     DEV_ALL}, // [ ] - Fehler - Historie 1 Fehlercode
 {0x053D06DD,  CAT_FEHLER,           VT_ERRORCODE,     6801,  STR6801_2,0,                    NULL,         FL_RONLY,     DEV_098_ALL}, // [ ] - THISION: Fehler Historie 1 Fehlermeldung (6800 on display, mapped to 6801)

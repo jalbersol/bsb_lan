@@ -549,6 +549,9 @@ unsigned long heater_last_reset = 0L;
 uint16_t heater_resets = 0;
 uint32_t heater_error_msg_total = 0;
 uint32_t heater_okay_msg_total = 0;
+boolean buzzer = false;
+
+boolean hexdump = false; // dump hex values
 
 const int TELEGRAM_ERROR_OKAY = 0;   // ok
 const int TELEGRAM_ERROR_DECODING_ERROR = 1;   // decoding error
@@ -1290,6 +1293,19 @@ void SerialPrintType(byte type){
   DebugOutput.print(TranslateType(type, device));
 } // --- SerialPrintType() ---
 
+/**
+ * Printf for serial, client, ...
+ */
+void printff(Stream &stream, const char *format, ...) {
+  va_list args;      
+  va_start(args, format);
+  char buffer[128];
+  if(vsprintf_P (buffer, format, args)>0) {
+    stream.print (buffer);
+  }
+  va_end(args);
+}
+
 /** *****************************************************************
  *  Function:
  *  Does:
@@ -1340,7 +1356,7 @@ void printBIT(byte *msg,byte data_len){
     for (int i=0; i < data_len; i++) {
       outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
     }
-    decodedTelegram.error = 1;
+    decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
 }
 
@@ -1377,7 +1393,7 @@ void printBYTE(byte *msg,byte data_len,const char *postfix){
     for (int i=0; i < data_len; i++) {
       outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
     }
-    decodedTelegram.error = 1;
+    decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
 }
 
@@ -1414,7 +1430,7 @@ void printWORD(byte *msg,byte data_len, long divisor, const char *postfix){
     for (int i=0; i < data_len; i++) {
       outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
     }
-    decodedTelegram.error = 1;
+    decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
 }
 
@@ -1451,7 +1467,7 @@ void printSINT(byte *msg,byte data_len, long multiplier, const char *postfix){
     for (int i=0; i < data_len; i++) {
       outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
     }
-    decodedTelegram.error = 1;
+    decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
 }
 
@@ -1488,7 +1504,7 @@ void printDWORD(byte *msg,byte data_len,long divider, const char *postfix){
     for (int i=0; i < data_len; i++) {
       outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
     }
-    decodedTelegram.error = 1;
+    decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
 }
 
@@ -1564,7 +1580,7 @@ void printFIXPOINT(byte *msg,byte data_len,float divider,int precision,const cha
     for (int i=0; i < data_len; i++) {
       outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
     }
-    decodedTelegram.error = 1;
+    decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
 }
 
@@ -1601,7 +1617,7 @@ void printFIXPOINT_DWORD(byte *msg,byte data_len,float divider,int precision,con
     for (int i=0; i < data_len; i++) {
       outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
     }
-    decodedTelegram.error = 1;
+    decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
 }
 
@@ -1638,7 +1654,7 @@ void printFIXPOINT_BYTE(byte *msg,byte data_len,float divider,int precision,cons
     for (int i=0; i < data_len; i++) {
       outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
     }
-    decodedTelegram.error = 1;
+    decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
 }
 
@@ -1675,7 +1691,7 @@ void printFIXPOINT_BYTE_US(byte *msg,byte data_len,float divider,int precision,c
     for (int i=0; i < data_len; i++) {
       outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
     }
-    decodedTelegram.error = 1;
+    decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
 }
 
@@ -1714,7 +1730,7 @@ void printCHOICE(byte *msg,byte data_len,const char *val0,const char *val1){
     for (int i=0; i < data_len; i++) {
       outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
     }
-    decodedTelegram.error = 1;
+    decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
 }
 
@@ -1763,7 +1779,7 @@ void printENUM(uint_farptr_t enumstr,uint16_t enumstr_len,uint16_t search_val, i
       }
     }else{
       outBufLen+=sprintf(outBuf+outBufLen,"%d",search_val);
-      decodedTelegram.error = 4;
+      decodedTelegram.error = TELEGRAM_ERROR_NOT_FOUND;
     }
     DebugOutput.print(p);
   }
@@ -1810,7 +1826,7 @@ void printCustomENUM(uint_farptr_t enumstr,uint16_t enumstr_len,uint16_t search_
       }
     }else{
       outBufLen+=sprintf(outBuf+outBufLen,"%d",search_val);
-      decodedTelegram.error = 4;
+      decodedTelegram.error = TELEGRAM_ERROR_NOT_FOUND;
     }
     DebugOutput.print(p);
   }
@@ -1845,7 +1861,7 @@ void printDateTime(byte *msg,byte data_len){
     for (int i=0; i < data_len; i++) {
       outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
     }
-    decodedTelegram.error = 1;
+    decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
 }
 
@@ -1877,7 +1893,7 @@ void printDate(byte *msg,byte data_len){
     for (int i=0; i < data_len; i++) {
       outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
     }
-    decodedTelegram.error = 1;
+    decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
 }
 
@@ -1922,7 +1938,7 @@ void printTimeProg(byte *msg,byte data_len){
     for (int i=0; i < data_len; i++) {
       outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
     }
-    decodedTelegram.error = 1;
+    decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
 }
 
@@ -1960,7 +1976,7 @@ void printTime(byte *msg,byte data_len){
     for (int i=0; i < data_len; i++) {
       outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
     }
-  decodedTelegram.error = 1;
+  decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
 }
 
@@ -1993,7 +2009,7 @@ void printLPBAddr(byte *msg,byte data_len){
     for (int i=0; i < data_len; i++) {
       outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
     }
-    decodedTelegram.error = 1;
+    decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
 }
 
@@ -2037,7 +2053,7 @@ void remove_char(char* str, char c) {
  * *************************************************************** */
 char *printTelegram(byte* msg, int query_line) {
   char *pvalstr=NULL;
-  decodedTelegram.error = 0;
+  decodedTelegram.error = TELEGRAM_ERROR_OKAY;
 
   outBufclear();
 
@@ -2145,7 +2161,9 @@ char *printTelegram(byte* msg, int query_line) {
       match_line = get_cmdtbl_line(i);
 //DebugOutput.print(F("  (match_line:"));DebugOutput.print(match_line);DebugOutput.print(F(") "));
       if ((dev_fam == my_dev_fam || dev_fam == 255) && (dev_var == my_dev_var || dev_var == 255)) {
+        // DEV_mmm_...           || DEV_ALL         &&  DEV_mmm_nnn           || DEV_mmm_ALL                    
         if (dev_fam == my_dev_fam && dev_var == my_dev_var) {
+          // DEV_mmm_nnn
           if ((dev_flags & FL_NO_CMD) == FL_NO_CMD) {
             known = false;
             score = 5;
@@ -2157,6 +2175,7 @@ char *printTelegram(byte* msg, int query_line) {
           }
         }
         if (dev_fam!=my_dev_fam) {
+          // DEV_ALL
           if ((dev_flags & FL_NO_CMD) == FL_NO_CMD && score < 1) {
             known = false;
             score = 1;
@@ -2165,8 +2184,9 @@ char *printTelegram(byte* msg, int query_line) {
             save_i = i;
             score = 2;
           }
-        }
+        }        
         if (dev_fam==my_dev_fam) {
+          // DEV_mmm_ALL
           if ((dev_flags & FL_NO_CMD) == FL_NO_CMD && score < 3) {
             known = false;
             score = 3;
@@ -2270,9 +2290,9 @@ char *printTelegram(byte* msg, int query_line) {
 //          outBufLen+=sprintf(outBuf+outBufLen,"error %d",msg[9]); For truncated error message LPB bus systems
 //          if((msg[9]==0x07 && bus_type==0) || (msg[9]==0x05 && bus_type==1)){
           outBufLen+=sprintf(outBuf+outBufLen,"error %d",msg[bus.getPl_start()]);
-            decodedTelegram.error = 64;
+            decodedTelegram.error = TELEGRAM_ERROR_COMMON_LPB_BUS_ERROR;
           if(msg[bus.getPl_start()]==0x07){
-            decodedTelegram.error = 32;
+            decodedTelegram.error = TELEGRAM_ERROR_PARAMETER_NOT_SUPPORTED;
           }
           DebugOutput.print(p);
         }else{
@@ -2431,7 +2451,7 @@ char *printTelegram(byte* msg, int query_line) {
                 for (int i=0; i < data_len; i++) {
                   outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
                   }
-                decodedTelegram.error = 1;
+                decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
                 }
               break;
             case VT_ENUM: // enum
@@ -2452,7 +2472,7 @@ char *printTelegram(byte* msg, int query_line) {
                   }else{
                     DebugOutput.print(F("no enum str "));
                     SerialPrintData(msg);
-                    decodedTelegram.error = 8;
+                    decodedTelegram.error = TELEGRAM_ERROR_NO_ENUM_STR;
                   }
                 }else{
                   DebugOutput.print(F("---"));
@@ -2464,7 +2484,7 @@ char *printTelegram(byte* msg, int query_line) {
                 for (int i=0; i < data_len; i++) {
                   outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
                   }
-                decodedTelegram.error = 1;
+                decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
                 }
               break;
             case VT_CUSTOM_ENUM: // custom enum
@@ -2477,7 +2497,7 @@ char *printTelegram(byte* msg, int query_line) {
               }else{
                 DebugOutput.print(F("no enum str "));
                 SerialPrintData(msg);
-                decodedTelegram.error = 8;
+                decodedTelegram.error = TELEGRAM_ERROR_NO_ENUM_STR;
               }
               break;
             }
@@ -2499,7 +2519,7 @@ char *printTelegram(byte* msg, int query_line) {
               }else{
                 DebugOutput.print(F("no enum str "));
                 SerialPrintData(msg);
-                decodedTelegram.error = 8;
+                decodedTelegram.error = TELEGRAM_ERROR_NO_ENUM_STR;
               }
               break;
             }
@@ -2520,7 +2540,7 @@ char *printTelegram(byte* msg, int query_line) {
                 for (int i=0; i < data_len; i++) {
                   outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
                   }
-                decodedTelegram.error = 1;
+                decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
                 }
               break;
             case VT_PPS_TIME: // PPS: Time and day of week
@@ -2540,7 +2560,7 @@ char *printTelegram(byte* msg, int query_line) {
               break;
             }
             case VT_ERRORCODE: //  u16 or u8 (via OCI420)
-              if(data_len == 3 || data_len == 2) {
+              if(data_len == 3 || data_len == 2 || data_len == 12 /* 6700 */) {
                 if(msg[bus.getPl_start()]==0){
                   long lval;
                   if (data_len == 3) {
@@ -2570,12 +2590,14 @@ char *printTelegram(byte* msg, int query_line) {
                   outBufLen+=sprintf(outBuf+outBufLen,"---");
                 }
               }else{
-                DebugOutput.print(F(" VT_ERRORCODE len ==0: "));
+                DebugOutput.print(F(" VT_ERRORCODE len =="));
+                DebugOutput.print(data_len, DEC);
+                DebugOutput.print(F(" : "));
                 SerialPrintData(msg);
                 for (int i=0; i < data_len; i++) {
                   outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
                   }
-                decodedTelegram.error = 1;
+                decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
                 }
               break;
             case VT_UNKNOWN:
@@ -2584,7 +2606,7 @@ char *printTelegram(byte* msg, int query_line) {
               for (int i=0; i < data_len; i++) {
                 outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
               }
-              decodedTelegram.error = 16;
+              decodedTelegram.error = TELEGRAM_ERROR_UNKNOWN_TYPE;
               break;
           }
         }
@@ -2594,7 +2616,7 @@ char *printTelegram(byte* msg, int query_line) {
         }
 //        DebugOutput.println();
 //        SerialPrintRAW(msg,msg[len_idx]+bus_type);
-        decodedTelegram.error = 2;
+        decodedTelegram.error = TELEGRAM_ERROR_UNKNOWN_COMMAND;
       }
     }
     // Error?
@@ -2620,78 +2642,62 @@ char *printTelegram(byte* msg, int query_line) {
   /*
    * Auto Heater Reset
    */
-  if(src == ADDR_HEIZ && dst == ADDR_DISP && msg_type == TYPE_ANS && prognr == 6700) {
-//  || (tel_type == 0xDE && src == ADDR_HEIZ && dst == ADDR_ALL  && msg_type == TYPE_INF /*&& cmd <= 0*/)) {
-    // error message
-/*
-DebugOutput_tv(" - heater_malfunction: ", heater_malfunction);
-DebugOutput_tv(" - heater_error_msg: ", heater_error_msg);
-DebugOutput_tv(" - heater_okay_msg: ", heater_okay_msg);
-DebugOutput_tv(" - heater_malfunctions: ", heater_malfunctions);
-DebugOutput_tv(" - heater_last_reset: ", heater_last_reset);
-DebugOutput_tv(" - heater_resets: ", heater_resets);
-*/
-DebugOutput.print(F("    - "));
-DebugOutput.print(heater_malfunction);DebugOutput.print(F(" ("));
-DebugOutput.print(heater_error_msg);DebugOutput.print(F(" "));
-DebugOutput.print(heater_okay_msg);DebugOutput.print(F(") "));
-DebugOutput.print(heater_malfunctions);DebugOutput.print(F(" "));
-DebugOutput.print(heater_last_reset);DebugOutput.print(F(" "));
-DebugOutput.print(heater_resets);DebugOutput.println();
-
-    heater_error_msg++;
-    heater_error_msg_total++;
-    heater_okay_msg = 0;
-    verbose = 1;
-    DebugOutput.println(F(" => Error Message"));
-    if(heater_malfunction == false && heater_error_msg >= 10) {
-      // new malfunction
-      heater_malfunction = true;
-      heater_malfunctions++;
-      DebugOutput.println(F(" => MALFUNCTION"));
+  if (bus.getBusType() == BUS_BSB && src == ADDR_HEIZ ) {
+    if (dst == myAddr && !( msg_type == TYPE_ANS && prognr == 6700 )) {
+      // ignore communication between HEIZ and BBS_lan (query answers), except 6700
     }
-    resetHeater();
-  } else {
-    // okay?
-    if((src == ADDR_HEIZ && dst == myAddr) || (src == myAddr && dst == ADDR_HEIZ)) {
-      // ignore communication between HEIZ and BBS_lan
-    } else {
-      if(heater_error_msg > 0) {
-/*
-DebugOutput_tv(" + heater_malfunction: ", heater_malfunction);
-DebugOutput_tv(" + heater_error_msg: ", heater_error_msg);
-DebugOutput_tv(" + heater_okay_msg: ", heater_okay_msg);
-DebugOutput_tv(" + heater_malfunctions: ", heater_malfunctions);
-DebugOutput_tv(" + heater_last_reset: ", heater_last_reset);
-DebugOutput_tv(" + heater_resets: ", heater_resets);
-*/
-DebugOutput.print(F("    + "));
-DebugOutput.print(heater_malfunction);DebugOutput.print(F(" ("));
-DebugOutput.print(heater_error_msg);DebugOutput.print(F(" "));
-DebugOutput.print(heater_okay_msg);DebugOutput.print(F(") "));
-DebugOutput.print(heater_malfunctions);DebugOutput.print(F(" "));
-DebugOutput.print(heater_last_reset);DebugOutput.print(F(" "));
-DebugOutput.print(heater_resets);DebugOutput.println();
+    else if (/*dst == ADDR_DISP &&*/ msg_type == TYPE_ANS && prognr == 6700 && msg[10] > 0) {      
+      // error message
+      heater_error_msg++;
+      heater_error_msg_total++;
+      heater_okay_msg = 0;
+      verbose = 1;
+
+      printff(DebugOutput, PSTR("    - %c (%d %d) %d %ld %d\n"), 
+        heater_malfunction?'J':'N', 
+        heater_error_msg, heater_okay_msg,
+        heater_malfunctions, heater_last_reset, heater_resets);
+
+      DebugOutput.println(F(" => Error Message"));
+
+      if (heater_malfunction == false && heater_error_msg >= 25) {
+        // new malfunction
+        heater_malfunction = true;
+        heater_malfunctions++;
+        DebugOutput.println(F(" => MALFUNCTION"));
       }
-      // TODO: Only INF?
-      // HEIZ->DISP ANS 8310 Diag. Erzeuger Kesseltemp     ca all 10 seconds
-      if(heater_malfunction) {
-        DebugOutput.println(F("Okay Message"));
-#ifdef HEATER_BUZZER_PIN
-        // buzzer off
-        pinMode(HEATER_BUZZER_PIN, OUTPUT);
-        digitalWrite(HEATER_BUZZER_PIN, LOW);
-#endif
+      resetHeater();  
+    } else {
+      // non-error (okay) message?
+      if (heater_malfunction || heater_error_msg > 0) {
+        printff(DebugOutput, PSTR("    - %c (%d %d) %d %ld %d\n"), 
+          heater_malfunction?'J':'N', 
+          heater_error_msg, heater_okay_msg,
+          heater_malfunctions, heater_last_reset, heater_resets);
+
+        DebugOutput.println(F(" => Okay Message"));
       }
       heater_okay_msg++;
       heater_okay_msg_total++;
-      if(heater_okay_msg >= 10) {
-        //DebugOutput.println(F("No malfunction"));
+
+      if ((/*dst == ADDR_DISP &&*/ msg_type == TYPE_ANS && prognr == 6700 && msg[10] == 0) 
+         || heater_okay_msg >= 10) {      
+        // no malfunction
+        if (heater_malfunction) {
+          DebugOutput.println(F("   => No malfunction"));
+        }
         heater_malfunction = false;
         heater_error_msg = 0;
+#ifdef HEATER_BUZZER_PIN
+        if(buzzer) {
+          DebugOutput.println(F("    Buzzer off"));         
+          digitalWrite(HEATER_BUZZER_PIN, LOW);
+          buzzer = false;
+        }
+#endif
       }
     }
-  }
+  }  // src = HEIZ
 
   return pvalstr;
 }
@@ -2707,7 +2713,7 @@ boolean resetHeater() {
     return;
   }
   if(millis() - heater_last_reset < 600000) { // min * 60 * 1000
-    DebugOutput.println(F("Min. delay between resets is 10 min!"));
+    DebugOutput.println(F("    Min. delay between resets is 10 min!"));
     return;
   }
 
@@ -2715,27 +2721,43 @@ boolean resetHeater() {
   boolean pin_okay = true;
   for (int i=0; i < anz_ex_gpio; i++) {
     if (HEATER_BUZZER_PIN == exclude_GPIO[i]) {
-      DebugOutput.println(F("Not allowed to use buzzer pin!"));
+      DebugOutput.println(F("    Not allowed to use buzzer pin!"));
       pin_okay = false;
       break;
     }
   }
+  int time = hour() * 100 + minute();
+  if (weekday() == dowSunday || weekday() == dowSaturday) {
+    // Weekend
+    if (time < 730) {
+      pin_okay = false;
+    }
+  } else {
+    // Workweek
+    if (time < 630 || time > 2300) {
+      pin_okay = false;
+    }
+  }
   if(pin_okay) {
       // buzzer on
+      DebugOutput.println(F("    Buzzer on"));
       pinMode(HEATER_BUZZER_PIN, OUTPUT);
       digitalWrite(HEATER_BUZZER_PIN, HIGH);
+      buzzer = true;
+  } else {
+      DebugOutput.println(F("    No Buzzer"));
   }
 #endif.
 
   for (int i=0; i < anz_ex_gpio; i++) {
     if (HEATER_RESET_PIN == exclude_GPIO[i]) {
-      DebugOutput.println(F("Not allowed to use reset pin!"));
+      DebugOutput.println(F("    Not allowed to use reset pin!"));
       return false;
     }
   }
 
   pinMode(HEATER_RESET_PIN, OUTPUT);
-  DebugOutput.println(F("=> HEATER RESET START"));
+  DebugOutput.println(F(" => HEATER RESET START"));
   digitalWrite(HEATER_RESET_PIN, HIGH);
 #ifdef HEATER_RESET_TIME
   delay(HEATER_RESET_TIME);
@@ -2743,14 +2765,14 @@ boolean resetHeater() {
   delay(1000);
 #endif
   digitalWrite(HEATER_RESET_PIN, LOW);
-  DebugOutput.println(F("=> HEATER RESET END"));
+  DebugOutput.println(F(" => HEATER RESET END"));
 
   heater_last_reset = millis();
   heater_resets++;
 
   heater_error_msg = 0;
   heater_okay_msg = 0;
-  heater_malfunction = false;
+  //! heater_malfunction = false;
 
   return true;
 }
@@ -3881,7 +3903,7 @@ char* query(int line_start  // begin at this line (ProgNr)
   int idx=0;
   int retry;
   char *pvalstr = NULL;
-  decodedTelegram.error = 0;
+  decodedTelegram.error = TELEGRAM_ERROR_OKAY;
   decodedTelegram.readonly = 0;
   decodedTelegram.isswitch = 0;
 
@@ -3948,7 +3970,7 @@ char* query(int line_start  // begin at this line (ProgNr)
             } else {
               outBufLen+=sprintf(outBuf+outBufLen,"%d",line);
             }
-          decodedTelegram.error = 128;
+          decodedTelegram.error = TELEGRAM_ERROR_QUERY_FAILED;
           }
         } else { // bus type is PPS
 
@@ -4027,7 +4049,7 @@ char* query(int line_start  // begin at this line (ProgNr)
 
           client.println(F("<tr><td>"));
         }
-        client.print(outBuf);
+        client.print(outBuf); // No Cat - Param
 
         switch(decodedTelegram.error){
           case TELEGRAM_ERROR_DECODING_ERROR:          client.println(F(" - decoding error")); break;
@@ -4068,6 +4090,18 @@ char* query(int line_start  // begin at this line (ProgNr)
           }
         }
 */
+        if (bus.getBusType() != BUS_PPS) {
+          if(hexdump) {
+            client.print(F("<br/><code>"));
+            for(int i=0; i<msg[3]; i++){    
+              if (msg[i] < 16) client.print(F("0"));  // add a leading zero to single-digit values
+              client.print(msg[i], HEX);
+              client.print(F(" "));
+            }
+            client.print(F("</code>"));
+          }
+        }
+
         client.println(F("</td><td>"));
         if (msg[4+(bus.getBusType()*4)] != TYPE_ERR && type != VT_UNKNOWN) {
           if(type == VT_ENUM || type == VT_CUSTOM_ENUM || type == VT_BIT || type == VT_ONOFF || type == VT_YESNO ) {
@@ -5661,6 +5695,16 @@ uint8_t pps_offset = 0;
         }
 #endif
 
+        if(p[1]=='h') {
+          if(p[2]=='1') hexdump = true;
+          else if(p[2]=='0') hexdump = false;
+          else hexdump = !hexdump;
+          webPrintHeader();
+          client.print(hexdump?F("Hexdump an"):F("Hexdump aus"));
+          webPrintFooter();
+          break;
+        } 
+
         // Answer to unknown requests
 #ifdef HIDE_PARAMETERS
         if(!isdigit(p[1]) && strchr("ABCDEFGHIJKLMNOPQRSTUVWXYZ",p[1])==NULL){
@@ -6702,37 +6746,15 @@ uint8_t pps_offset = 0;
           }
           client.println(F("<BR>"));
 
-          client.println(F("Störmeldungen insgesamt: \n")); // TODO: Text
-          client.println(heater_error_msg_total);
-          client.println(F("<BR>"));
-
-          client.println(F("Nicht-Störmeldungen insgesamt: \n")); // TODO: Text
-          client.println(heater_okay_msg_total);
-          client.println(F("<BR>"));
-
-          client.println(F("Störung: \n")); // TODO: Text
-          client.println(heater_malfunction?F("<span style='background-color:yellow;'>JA</span>"):F("<span style='color:green;'>Nein</span>"));
-          client.println(F("<BR>"));
-
-          client.println(F("Störungen: \n")); // TODO: Text
-          client.println(heater_malfunctions);
-          client.println(F("<BR>"));
-
-          client.println(F("Störmeldungen: \n")); // TODO: Text
-          client.println(heater_error_msg);
-          client.println(F("<BR>"));
-
-          client.println(F("Nicht-Störmeldungen: \n")); // TODO: Text
-          client.println(heater_okay_msg);
-          client.println(F("<BR>"));
-
-          client.println(F("Heizung Resets: \n")); // TODO: Text
-          client.println(heater_resets);
-          client.println(F("<BR>"));
-
-          client.println(F("Letzter Reset: \n")); // TODO: Text
-          client.println(heater_last_reset);
-          client.println(F("<BR>"));
+          printff(client, PSTR("Störmeldungen insgesamt: %d<BR>\n"), heater_error_msg_total);
+          printff(client, PSTR("Nicht-Störmeldungen insgesamt: %d<BR>\n"), heater_okay_msg_total);
+          printff(client, PSTR("Störmeldungen: %d<BR>\n"), heater_error_msg);
+          printff(client, PSTR("Nicht-Störmeldungen: %d<BR>\n"), heater_okay_msg);
+//          printff(client, PSTR("Störung: %s<BR>\n"), heater_malfunction?PSTR("<span style='background-color:yellow;'>JA</span>"):PSTR("<span style='color:green;'>Nein</span>"));
+          printff(client, PSTR("Störung: %s<BR>\n"), heater_malfunction?"JA":"Nein");
+          printff(client, PSTR("Heizung Resets: %d<BR>\n"), heater_resets);
+          printff(client, PSTR("Letzter Reset: %ld<BR>\n"), heater_last_reset);
+          printff(client, PSTR("Störungen: %d<BR>\n"), heater_malfunctions);
 
           client.println(F("<BR>"));
 /*
@@ -6827,10 +6849,7 @@ uint8_t pps_offset = 0;
         size_t fav_max = sizeof(favourites) / sizeof(favourites[0]);
 	      for (int i = 0; i < fav_max; i++) {
           if(favourites[i] <= NO_PARAMETER) continue;
-	      	client.print(favourites[i]);
-          client.print(F(" - "));
-          client.print(lookup_descr(favourites[i]));
-	      	client.println(F("<BR>"));
+          printff(client, PSTR("%d - %s<BR>\n"), favourites[i], lookup_descr(favourites[i]));
 	      }
 	      client.println(F("</p>"));
 #endif // FAVORITES
@@ -6861,18 +6880,12 @@ uint8_t pps_offset = 0;
         size_t param_max = sizeof(parameters_hide) / sizeof(parameters_hide[0]);
 	      for (int i = 0; i < param_max; i++) {
           if(parameters_hide[i] <= NO_PARAMETER) continue;
-	      	client.print(parameters_hide[i]);
-          client.print(F(" - "));
-          client.print(lookup_descr(parameters_hide[i]));
-	      	client.println(F(" (static)" "<BR>"));
+          printff(client, PSTR("%d - %s<BR>\n"), parameters_hide[i], lookup_descr(parameters_hide[i]));
 	      }
         if(hide_enabled) {
   	      for (int i = 0; i < hide_position; i++) {
             if(parameters_skip[i] <= NO_PARAMETER) continue;
-	        	client.print(parameters_skip[i]);
-            client.print(F(" - "));
-            client.print(lookup_descr(parameters_skip[i]));
-	      	  client.println(F("<BR>"));
+            printff(client, PSTR("%d - %s (static)<BR>\n"), parameters_skip[i], lookup_descr(parameters_skip[i]));
 	        }
         }
         client.println(F("</p>"));
