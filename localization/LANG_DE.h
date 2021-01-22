@@ -27,7 +27,7 @@
 #define ENUM_CAT_03_TEXT "Zeitprogramm Heizkreis 1"
 #define ENUM_CAT_04_TEXT "Zeitprogramm Heizkreis 2"
 #define ENUM_CAT_05_TEXT "Zeitprogramm 3/HKP"
-#define ENUM_CAT_06_TEXT "Zeitprogramm 4"
+#define ENUM_CAT_06_TEXT "Zeitprogramm 4/TWW" // Brötje EcoTherm Plus WGB Pro EVO 15 C (098/100) + "/TWW"
 #define ENUM_CAT_07_TEXT "Zeitprogramm 5"
 #define ENUM_CAT_08_TEXT "Ferien Heizkreis 1"
 #define ENUM_CAT_09_TEXT "Ferien Heizkreis 2"
