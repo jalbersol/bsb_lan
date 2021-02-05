@@ -83,8 +83,9 @@
  *          -- f: date from or number of last days
  *          -- t: date to
  *          Examples:
- *           - /DG?w=5000&h=800&f=2021-01-01&t=2021-01-31 
+ *           - /DG?w=5000&h=800&f=2021-01-01&t=2021-01-31
  *           - /DG?w=5000&h=800&f=3
+ *        - Added readable start timestamp
  *       version 0.44
  *        - Added webserver functionality via SD card and various other improvements from GitHub user dukess
  *        - Added JSON output for MQTT
@@ -460,7 +461,9 @@ char outBuf[OUTBUF_LEN] = { 0 };
 byte outBufLen=0;
 
 char printBuffer[128] = { 0 };
-// not working: %f
+// not working:
+//  - %f
+//  printfp(client, PSTR("%s: %s<BR>\n"), F(MENU_TEXT_VER), F(BSB_VERSION));
 #define printfp(_stream,...) if(sprintf_P(printBuffer,__VA_ARGS__)>0) _stream.print(printBuffer);
 #define printfs(_stream,...) if(sprintf(printBuffer,__VA_ARGS__)>0) _stream.print(printBuffer);
 
@@ -537,6 +540,7 @@ uint8_t json_types[20] = { 0 };
   dht DHT;
 #endif
 
+char start_date[20] = {0};
 char date[20];
 
 unsigned long lastAvgTime = millis();
@@ -557,15 +561,20 @@ float *avgValues_Current = new float[numAverages];
 int avgCounter = 1;
 int loopCount = 0;
 
+#ifdef HEATER_RESET_PIN
 uint16_t heater_error_msg = 0;
 unsigned long heater_okay_msg = 0L;
 boolean heater_malfunction = false;
 uint16_t heater_malfunctions = 0;
 unsigned long heater_last_reset = 0L;
+char heater_last_reset_str[20] = {0};
 uint16_t heater_resets = 0;
 unsigned long heater_error_msg_total = 0L;
 unsigned long heater_okay_msg_total = 0L;
+#endif // HEATER_RESET_PIN
+#ifdef HEATER_BUZZER_PIN
 boolean buzzer = false;
+#endif // HEATER_BUZZER_PIN
 
 boolean hexdump = false; // dump hex values
 
@@ -1979,7 +1988,7 @@ void printTime(byte *msg,byte data_len){
       char PPS_output[55];
       sprintf(PPS_output,"%02d:%02d-%02d:%02d, %02d:%02d-%02d:%02d, %02d:%02d-%02d:%02d",msg[bus.getPl_start()+1] / 6, (msg[bus.getPl_start()+1] % 6) * 10, msg[bus.getPl_start()] / 6, (msg[bus.getPl_start()] % 6) * 10, msg[bus.getPl_start()-1] / 6, (msg[bus.getPl_start()-1] % 6) * 10, msg[bus.getPl_start()-2] / 6, (msg[bus.getPl_start()-2] % 6) * 10, msg[bus.getPl_start()-3] / 6, (msg[bus.getPl_start()-3] % 6) * 10, msg[bus.getPl_start()-4] / 6, (msg[bus.getPl_start()-4] % 6) * 10);
       DebugOutput.print(PPS_output);
-    } else 
+    } else
 #endif // NO_PPS
     {
       DebugOutput.print(p);
@@ -2183,7 +2192,7 @@ char *printTelegram(byte* msg, int query_line) {
       match_line = get_cmdtbl_line(i);
 //DebugOutput.print(F("  (match_line:"));DebugOutput.print(match_line);DebugOutput.print(F(") "));
       if ((dev_fam == my_dev_fam || dev_fam == 255) && (dev_var == my_dev_var || dev_var == 255)) {
-        // DEV_mmm_...           || DEV_ALL         &&  DEV_mmm_nnn           || DEV_mmm_ALL                    
+        // DEV_mmm_...           || DEV_ALL         &&  DEV_mmm_nnn           || DEV_mmm_ALL
         if (dev_fam == my_dev_fam && dev_var == my_dev_var) {
           // DEV_mmm_nnn
           if ((dev_flags & FL_NO_CMD) == FL_NO_CMD) {
@@ -2206,7 +2215,7 @@ char *printTelegram(byte* msg, int query_line) {
             save_i = i;
             score = 2;
           }
-        }        
+        }
         if (dev_fam==my_dev_fam) {
           // DEV_mmm_ALL
           if ((dev_flags & FL_NO_CMD) == FL_NO_CMD && score < 3) {
@@ -2672,18 +2681,18 @@ char *printTelegram(byte* msg, int query_line) {
     if (dst == myAddr && !( msg_type == TYPE_ANS && prognr == 6700 )) {
       // ignore communication between HEIZ and BBS_lan (query answers), except 6700
     }
-    else if (/*dst == ADDR_DISP &&*/ msg_type == TYPE_ANS && prognr == 6700 && msg[10] > 0) {      
+    else if (/*dst == ADDR_DISP &&*/ msg_type == TYPE_ANS && prognr == 6700 && msg[10] > 0) {
       // error message
       heater_error_msg++;
       heater_error_msg_total++;
       heater_okay_msg = 0;
       verbose = 1;
-
-      printfp(DebugOutput, PSTR("    - %c (%d %d) %d %ld %d\n"), 
-        heater_malfunction?'J':'N', 
+/*
+      printfp(DebugOutput, PSTR("    - %c (%d %d) %d %ld %d\n"),
+        heater_malfunction?'J':'N',
         heater_error_msg, heater_okay_msg,
         heater_malfunctions, heater_last_reset, heater_resets);
-
+*/
       DebugOutput.println(F(" => Error Message"));
 
       if (heater_malfunction == false && heater_error_msg >= 25) {
@@ -2692,22 +2701,23 @@ char *printTelegram(byte* msg, int query_line) {
         heater_malfunctions++;
         DebugOutput.println(F(" => MALFUNCTION"));
       }
-      resetHeater();  
+      resetHeater();
     } else {
       // non-error (okay) message?
       if (heater_malfunction || heater_error_msg > 0) {
-        printfp(DebugOutput, PSTR("    - %c (%d %d) %d %ld %d\n"), 
-          heater_malfunction?'J':'N', 
+/*
+        printfp(DebugOutput, PSTR("    - %c (%d %d) %d %ld %d\n"),
+          heater_malfunction?'J':'N',
           heater_error_msg, heater_okay_msg,
           heater_malfunctions, heater_last_reset, heater_resets);
-
+*/
         DebugOutput.println(F(" => Okay Message"));
       }
       heater_okay_msg++;
       heater_okay_msg_total++;
 
-      if ((/*dst == ADDR_DISP &&*/ msg_type == TYPE_ANS && prognr == 6700 && msg[10] == 0) 
-         || heater_okay_msg >= 10) {      
+      if ((/*dst == ADDR_DISP &&*/ msg_type == TYPE_ANS && prognr == 6700 && msg[10] == 0)
+         || heater_okay_msg >= 10) {
         // no malfunction
         if (heater_malfunction) {
           DebugOutput.println(F("   => No malfunction"));
@@ -2716,7 +2726,7 @@ char *printTelegram(byte* msg, int query_line) {
         heater_error_msg = 0;
 #ifdef HEATER_BUZZER_PIN
         if(buzzer) {
-          DebugOutput.println(F("    Buzzer off"));         
+          DebugOutput.println(F("    Buzzer off"));
           digitalWrite(HEATER_BUZZER_PIN, LOW);
           buzzer = false;
         }
@@ -2773,7 +2783,7 @@ boolean resetHeater() {
   } else {
       DebugOutput.println(F("    No Buzzer"));
   }
-#endif.
+#endif // HEATER_BUZZER_PIN
 
   for (int i=0; i < anz_ex_gpio; i++) {
     if (HEATER_RESET_PIN == exclude_GPIO[i]) {
@@ -2794,6 +2804,7 @@ boolean resetHeater() {
   DebugOutput.println(F(" => HEATER RESET END"));
 
   heater_last_reset = millis();
+  GetDateTime(heater_last_reset_str);
   heater_resets++;
 
   heater_error_msg = 0;
@@ -4119,7 +4130,7 @@ char* query(int line_start  // begin at this line (ProgNr)
         if (bus.getBusType() != BUS_PPS) {
           if(hexdump) {
             client.print(F("<br/><code>"));
-            for(int i=0; i<msg[3]; i++){    
+            for(int i=0; i<msg[3]; i++){
               if (msg[i] < 16) client.print(F("0"));  // add a leading zero to single-digit values
               client.print(msg[i], HEX);
               client.print(F(" "));
@@ -4347,6 +4358,9 @@ void SetDateTime(){
         setTime(rx_msg[18], rx_msg[19], rx_msg[20], rx_msg[16], rx_msg[15], rx_msg[14]+1900);
       } else {
         setTime(rx_msg[14], rx_msg[15], rx_msg[16], rx_msg[12], rx_msg[11], rx_msg[10]+1900);
+      }
+      if(start_date[0]==0) {
+        GetDateTime(start_date);
       }
     }
   }
@@ -5728,7 +5742,7 @@ uint8_t pps_offset = 0;
           client.print(hexdump?F("Hexdump an"):F("Hexdump aus"));
           webPrintFooter();
           break;
-        } 
+        }
 
         // Answer to unknown requests
 #ifdef HIDE_PARAMETERS
@@ -6650,27 +6664,33 @@ uint8_t pps_offset = 0;
 #ifdef LOGGER
         if(p[1]=='D'){ // access datalog file
           if (p[2]=='U') {  // upload new datalog file
-            webPrintHeader();
+            unsigned long lastAvgTime_tmp = lastAvgTime;
+            unsigned long lastLogTime_tmp = lastLogTime;
+            lastAvgTime = millis() + 60000; // pause 10 min
+            lastLogTime = millis() + 60000; // pause 10 min
             SD.remove("datalog.txt");
             File dataFile = SD.open("datalog.txt", FILE_WRITE);
             if (dataFile) {
 //              DebugOutput.println(F("-----Begin-----"));
               unsigned long num = 0;
-              int by = client.read();
-              while(by>0) {
-                num++;
+              while(client.available()) {
+                int by = client.read();
                 dataFile.print((char)by);
+                num++;
 //                DebugOutput.print((char)by);
-                by = client.read();
               }
 //              DebugOutput.println();
 //              DebugOutput.println(F("-----End-----"));
               DebugOutput.print(num);
               DebugOutput.println(F(" Bytes"));
               dataFile.close();
+              lastAvgTime = lastAvgTime_tmp;
+              lastLogTime = lastLogTime_tmp;
+              webPrintHeader();
               client.println(F(MENU_TEXT_DTR));
               DebugOutput.println(F("File datalog.txt removed and recreated."));
             } else {
+              webPrintHeader();
               client.println(F(MENU_TEXT_DTF));
             }
             webPrintFooter();
@@ -6724,16 +6744,20 @@ uint8_t pps_offset = 0;
 //          client.println(F("BSB pins: "));
 //          client.println(bus);
 //          client.println(F("<BR><BR>"));
-
           client.print(F(MENU_TEXT_VER ": "));
           client.print(F(BSB_VERSION));
           client.println(F("<BR>"));
+          printfp(client, PSTR("Zeitpunkt: %s<BR>\n"), GetDateTime(date));
           client.print(F(MENU_TEXT_RAM ": "));
           client.print(freeRam());
           client.println(F(" Bytes <BR>"));
 
           client.print(F(MENU_TEXT_UPT ": "));
-          client.print(millis());
+          if(start_date[0]!=0) {
+            client.print(start_date);
+          } else {
+            client.print(millis());
+          }
           client.println(F("<BR>"));
 
           myAddr = bus.getBusAddr();
@@ -6763,6 +6787,15 @@ uint8_t pps_offset = 0;
             }
           }
           client.println(F("<BR>"));
+#ifdef LOGGER
+          float cardSize = SD.card()->cardSize() * 0.000512;
+          float used = cardSize - SD.vol()->freeClusterCount() * SD.vol()->blocksPerCluster() * 0.000512;
+          float free = cardSize - used;
+          printfp(client,PSTR("SD-Card Größe, benutzt, frei: %d.%02d, %d.%02d, %d.%02d MB<BR>\n"),
+            (unsigned int)cardSize, (unsigned int)(cardSize * 100.0) % 100,
+            (unsigned int)used,     (unsigned int)(used     * 100.0) % 100,
+            (unsigned int)free,     (unsigned int)(free     * 100.0) % 100);
+#endif // LOGGER
           client.print(F(MENU_TEXT_MMD ": "));
           client.println(monitor);
           client.print(F("<BR>" MENU_TEXT_VBL ": "));
@@ -6797,23 +6830,37 @@ uint8_t pps_offset = 0;
             if(i != 5) client.print(F(":"));
           }
           client.println(F("<BR>"));
-
-          printfp(client, PSTR("Störmeldungen insgesamt: %d<BR>\n"), heater_error_msg_total);
-          printfp(client, PSTR("Nicht-Störmeldungen insgesamt: %d<BR>\n"), heater_okay_msg_total);
-          printfp(client, PSTR("Störmeldungen: %d<BR>\n"), heater_error_msg);
-          printfp(client, PSTR("Nicht-Störmeldungen: %d<BR>\n"), heater_okay_msg);
-//          printfp(client, PSTR("Störung: %s<BR>\n"), heater_malfunction?PSTR("<span style='background-color:yellow;'>JA</span>"):PSTR("<span style='color:green;'>Nein</span>"));
-          printfp(client, PSTR("Störung: %s<BR>\n"), heater_malfunction?"JA":"Nein");
-          printfp(client, PSTR("Heizung Resets: %d<BR>\n"), heater_resets);
-          printfp(client, PSTR("Letzter Reset: %ld<BR>\n"), heater_last_reset);
-          printfp(client, PSTR("Störungen: %d<BR>\n"), heater_malfunctions);
-
-          client.println(F("<BR>"));
 /*
           client.println(F("IP address: "));
           client.println(ip);
           client.println(F("<BR>"));
 */
+
+#ifdef HEATER_RESET_PIN && HEATER_RESET_PIN > 0
+          client.println(F("<BR>"));
+
+//          printfp(client, PSTR("Störung: %s<BR>\n"), heater_malfunction?PSTR("<span style='background-color:yellow;'>JA</span>"):PSTR("<span style='color:green;'>Nein</span>"));
+          printfp(client, PSTR("Störung: %s<BR>\n"), heater_malfunction?"JA":"Nein");
+          printfp(client, PSTR("Störungen: %d<BR>\n"), heater_malfunctions);
+          printfp(client, PSTR("Heizung Resets: %d<BR>\n"), heater_resets);
+          printfp(client, PSTR("Letzter Reset: %s<BR>\n"), heater_last_reset_str);
+          //
+          printfp(client, PSTR("Störmeldungen: %d<BR>\n"), heater_error_msg);
+          printfp(client, PSTR("Nicht-Störmeldungen: %lu<BR>\n"), heater_okay_msg);
+          //
+          printfp(client, PSTR("Störmeldungen insgesamt: %lu<BR>\n"), heater_error_msg_total);
+          printfp(client, PSTR("Nicht-Störmeldungen insgesamt: %lu<BR>\n"), heater_okay_msg_total);
+          //
+          printfp(client, PSTR("Reset-Pin: %d<BR>\n"), HEATER_RESET_PIN);
+#ifdef HEATER_RESET_TIME
+          printfp(client, PSTR("Reset-Time: %d ms<BR>\n"), HEATER_RESET_TIME);
+#endif // HEATER_RESET_TIME
+#ifdef HEATER_BUZZER_PIN
+          printfp(client, PSTR("Buzzer-Pin: %d<BR>\n"), HEATER_BUZZER_PIN);
+#endif // HEATER_BUZZER_PIN
+          client.println(F("<BR>"));
+#endif // HEATER_RESET_PIN
+
           // avarage parameters
           client.println(F(MENU_TEXT_AVT ": <BR>"));
           for (int i=0; i<numAverages; i++) {
@@ -7599,7 +7646,7 @@ uint8_t pps_offset = 0;
 
     if (dataFile) {
       float Tv = 0.0;
-      float Tr = 0.0;   
+      float Tr = 0.0;
       for (int i=0; i < numLogValues; i++) {
         if (log_parameters[i] == 0) continue;
         if (log_parameters[i] > 0 && (log_parameters[i] < 20006 || log_parameters[i] > 20009) && log_parameters[i] != 30000) {
@@ -7613,8 +7660,6 @@ uint8_t pps_offset = 0;
         }
         if (log_parameters[i] > 0 && log_parameters[i] < 20000) {
           // 1...19999
-          dataFile.print(lookup_descr(log_parameters[i])); // Name
-          dataFile.print(F(";"));
           char *value0 = query(log_parameters[i], log_parameters[i], 1);
           char *value = strtok(value0," ");
 
@@ -7626,11 +7671,17 @@ uint8_t pps_offset = 0;
             Tv = atof(value);
           } else if(log_parameters[i] == 6700) {
             int iVal = atoi(value);
-            if(iVal > 0) {
+            printfp(DebugOutput, PSTR("1 value0/value: %s -> %s -> %i\n"), value0, value, iVal);
+            if(iVal <= 0) {
+//              continue;
+            } else {
               float fVal = iVal /= 10; // scale down for /DG
               sprintf(value, "%3.1f", fVal);
+              printfp(DebugOutput, PSTR("2 fVal/value: %s\n"), fVal, value);
             }
           }
+          dataFile.print(lookup_descr(log_parameters[i])); // Name
+          dataFile.print(F(";"));
           dataFile.print(value); // Value
           dataFile.print(F(";"));
           // Unit
@@ -7657,13 +7708,14 @@ uint8_t pps_offset = 0;
         } else {
           // 20000...
           if (log_parameters[i] == 31000) {
-            double delta = Tr-Tv;
             if(Tv > 0.0 && Tr > 0.0) {
               dataFile.print(F("Delta Vor-/Rücklauf"));
               dataFile.print(F(";"));
               dataFile.print(Tr-Tv);
               dataFile.println(F(";&deg;C"));
             }
+            Tr = 0.0;
+            Tv = 0.0;
           }
           else if (log_parameters[i] == 20000) {
             dataFile.print(F(MENU_TEXT_BZ1));
