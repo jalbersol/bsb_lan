@@ -150,7 +150,7 @@
 #define MENU_TEXT_NVN "Installierte Version ist aktuell."
 #define MENU_LINK_TOC "https://1coderookie.github.io/BSB-LPB-LAN/inhaltsverzeichnis.html"
 #define MENU_LINK_FAQ "https://1coderookie.github.io/BSB-LPB-LAN/kap15.html"
-#define MENU_LINK_URL "https://1coderookie.github.io/BSB-LPB-LAN/anhang_b.html"
+#define MENU_LINK_URL "https://1coderookie.github.io/BSB-LPB-LAN_EN/chap05.html#51-url-commands"
 
 #define STR0_TEXT "Datum/Zeit"
 #define STR1_TEXT "Stunden/Minuten"
@@ -470,6 +470,7 @@
 #define STR2663_TEXT "Entlüft'dauer Trinkwasser"
 #define STR2700_TEXT "Ergebnis letzter Drifttest"
 #define STR2700_2_TEXT "Ion'strom gefiltert"
+#define STR2701_TEXT "Mittelwert Drifttest"
 #define STR2702_TEXT "Auslösen neuer Drifttest"
 #define STR2702_2_TEXT "Position Schrittmotor"
 #define STR2703_TEXT "Reset Drifttest"
@@ -1847,6 +1848,7 @@
 #define ENUM2706_12_TEXT "ADA Intervall 1 fällig"
 #define ENUM2721_01_TEXT "Erdgas"
 #define ENUM2721_02_TEXT "Flüssiggas"
+#define ENUM2727_00_TEXT "Bereich 0" // 098/100 has 0...2 and not 1...3
 #define ENUM2727_01_TEXT "Bereich 1"
 #define ENUM2727_02_TEXT "Bereich 2"
 #define ENUM2727_03_TEXT "Bereich 3"

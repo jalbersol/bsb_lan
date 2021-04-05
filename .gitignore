@@ -2,6 +2,7 @@
 .gitattributes
 .DS_Store
 .vscode/
+.*
 arduino.sh
 due.sh
 build/
@@ -17,6 +18,7 @@ src/BSB/BSBSoftwareSerial.h.old
 *.bak
 *.log
 *~
+Data/*.sh
 defs-brute-force-*.h
 check-existing.pl
 remove_doubles.pl
@@ -25,3 +27,4 @@ replace_defs.pl
 replace_enums.pl
 tidy_enums.pl
 localization/conv-csv.pl
+Data/*

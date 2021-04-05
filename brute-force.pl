@@ -23,8 +23,8 @@ use strict;
 # Note: No trailing slash!
 
 my $URL = "http://192.168.158.88";
-my $baseID = 0x05;
-my $param_nr = 11000;
+my $baseID = 0x09;
+my $param_nr = 2700;
 
 my $counter = 0;
 my $counter_padded = 0;

@@ -53,7 +53,7 @@
 #define TYPE_IA2  0x15 // internal answer type 2 (still undecoded)
 
 /* telegram addresses */
-#define ADDR_HEIZ  0x00
+#define ADDR_HEIZ  0x00 // 0x80
 #define ADDR_EM1   0x03
 #define ADDR_EM2   0x04
 #define ADDR_RGT1  0x06
@@ -1069,6 +1069,7 @@ const char STR2663[] PROGMEM = STR2663_TEXT;
 //Sitherm Pro
 const char STR2700[] PROGMEM = STR2700_TEXT;
 const char STR2700_2[] PROGMEM = STR2700_2_TEXT;
+const char STR2701[] PROGMEM = STR2701_TEXT;
 const char STR2702[] PROGMEM = STR2702_TEXT;
 const char STR2702_2[] PROGMEM = STR2702_2_TEXT;
 const char STR2703[] PROGMEM = STR2703_TEXT;
@@ -3373,6 +3374,7 @@ const char ENUM2721[] PROGMEM_LATEST = {
 }; // todo Hinweis: x01 Erdgas ist definitiv richtig. Die anderen muessen noch verifiziert werden.
 
 const char ENUM2727[] PROGMEM_LATEST = {
+"\x00 " ENUM2727_00_TEXT "\0"
 "\x01 " ENUM2727_01_TEXT "\0"
 "\x02 " ENUM2727_02_TEXT "\0"
 "\x03 " ENUM2727_03_TEXT
@@ -5628,6 +5630,9 @@ HEIZ->DISP ANS  712 11 - Heizkreis 1 - Reduziertsollwert 15.00 &deg;C
 /* global command table */
 /* **********************/
 
+// cmd        category              type           line      desc      enumstr_len           enumstr      flags          dev_fam/dev_var
+// Answer 11223344
+// Query  22113344 !!!
 PROGMEM_LATE const cmd_t cmdtbl1[]={
 // Uhrzeit und Datum
 {0x053D000B,  CAT_DATUMZEIT,        VT_DATETIME,      0,     STR0,     0,                    NULL,         DEFAULT_FLAG, DEV_ALL}, // [ ] - Uhrzeit und Datum
@@ -6151,6 +6156,7 @@ PROGMEM_LATE const cmd_t cmdtbl1[]={
 {0x053D0F7E,  CAT_KESSEL,           VT_ENUM,          2450,  STR2450,  sizeof(ENUM2450),     ENUM2450,     DEFAULT_FLAG, DEV_ALL}, // Reglerverzögerung
 {0x093D2F9A,  CAT_KESSEL,           VT_SECONDS_WORD,  2451,  STR2451,  0,                    NULL,         DEFAULT_FLAG, DEV_ALL}, // Thision 2451 Brennerpausenzeit Minimum [s]
 {0x113D2F87,  CAT_KESSEL,           VT_TEMP_WORD,     2452,  STR2452,  0,                    NULL,         DEFAULT_FLAG, DEV_ALL}, // Brötje 2452 SD Brennerpause
+{0x113D2F87,  CAT_KESSEL,           VT_TEMP_WORD5_US, 2452,  STR2452,  0,                    NULL,         DEFAULT_FLAG, DEV_098_ALL}, // Brötje 2452 SD Brennerpause - DISP->HEIZ logging
 {0x2D3D2F9B,  CAT_KESSEL,           VT_SECONDS_WORD,  2453,  STR2453,  0,                    NULL,         DEFAULT_FLAG, DEV_ALL}, // Brötje 2453 Reglerverzögerung Dauer
 {0x213D2F8C,  CAT_KESSEL,           VT_TEMP_SHORT5_US,2454,  STR2454,  0,                    NULL,         DEFAULT_FLAG, DEV_ALL}, // Brötje 2454 Schaltdifferenz Kessel
 {0x213D2F8D,  CAT_KESSEL,           VT_TEMP_SHORT5_US,2455,  STR2455,  0,                    NULL,         DEFAULT_FLAG, DEV_ALL}, // Brötje 2455 Schaltdiff Kessel Aus Min
@@ -6182,6 +6188,8 @@ PROGMEM_LATE const cmd_t cmdtbl1[]={
 
 //Sitherm Pro
 {0x093D303A,  CAT_SITHERM,           VT_UINT,         2700,  STR2700,  0,                    NULL,         DEFAULT_FLAG, DEV_ALL}, // Ergebnis letzter Drifttest
+{0x093D3039,  CAT_SITHERM,           VT_UINT,         2700,  STR2700,  0,                    NULL,         DEFAULT_FLAG, DEV_098_100}, // Ergebnis letzter Drifttest
+{0x093D303A,  CAT_SITHERM,           VT_UINT,         2701,  STR2701,  0,                    NULL,         DEFAULT_FLAG, DEV_098_100}, // Mittelwert Drifttest
 {0x093D301E,  CAT_SITHERM,           VT_YESNO,        2702,  STR2702,  0,                    NULL,         DEFAULT_FLAG, DEV_ALL}, // Auslösen neuer Drifttest Ja/Nein
 {0x093D301F,  CAT_SITHERM,           VT_YESNO,        2703,  STR2703,  0,                    NULL,         DEFAULT_FLAG, DEV_ALL}, // Reset Drifttest Ja/Nein
 {0x093D303B,  CAT_SITHERM,           VT_SINT,         2704,  STR2704,  0,                    NULL,         DEFAULT_FLAG, DEV_ALL}, // Untergrenze Drifttest Störung
@@ -7268,6 +7276,7 @@ PROGMEM_LATE const cmd_t cmdtbl2[]={
 {0x113D0C86,  CAT_DIAG_ERZEUGER,    VT_TEMP,          8321,  STR8321,  0,                    NULL,         FL_RONLY,     DEV_ALL}, // Virtual parameter logged on OCI420 via ACS700 diagnosis software: Aktuelle Regeldifferenz
 {0x093D0E69,  CAT_DIAG_ERZEUGER,    VT_SPEED2,        8323,  STR8323,  0,                    NULL,         FL_RONLY,     DEV_ALL}, // Gebläsedrehzahl - Broetje NovoCondens WOB20-25
 {0x21050518,  CAT_DIAG_ERZEUGER,    VT_SPEED2,        8323,  STR8323,  0,                    NULL,         FL_RONLY,     DEV_098_ALL}, // Gebläsedrehzahl
+{0x113D0C82,  CAT_DIAG_ERZEUGER,    VT_SPEED2,        8323,  STR8323,  0,                    NULL,         FL_RONLY,     DEV_098_100}, // Gebläsedrehzahl DISPL->HEIZ logging
 {0x113D305D,  CAT_DIAG_ERZEUGER,    VT_PERCENT,       8324,  STR8324,  0,                    NULL,         FL_RONLY,     DEV_ALL}, // Thision Diagnose Erzeuger - Gebläsedrehzahl
 {0x093D0E00,  CAT_DIAG_ERZEUGER,    VT_PERCENT,       8325,  STR8325,  0,                    NULL,         FL_RONLY,     DEV_ALL}, // Akt. Gebläsesteuerung - Broetje NovoCondens WOB20-25
 {0x113D305F,  CAT_DIAG_ERZEUGER,    VT_PERCENT,       8326,  STR8326,  0,                    NULL,         FL_RONLY,     DEV_ALL}, // Thision Brennermodulation

@@ -82,10 +82,19 @@
  *          -- h: height in pixel
  *          -- f: date from or number of last days
  *          -- t: date to
+ *          -- p: list of shown prog numbers
+ *          -- q: list of hidden prog numbers
+ *          -- min: limit min value
+ *          -- max: limit max value
  *          Examples:
  *           - /DG?w=5000&h=800&f=2021-01-01&t=2021-01-31
  *           - /DG?w=5000&h=800&f=3
  *        - Added readable start timestamp
+ *        - 098/100: ProgNr 2700 is "Ergebnis letzter Drifttest" (093D3039)
+ *        - 098/100: ProgNr 2701 is "Mittelwert Drifttest" (093D303A)
+ *        - 098/100: ProgNr 2727 has "Bereich 0", "Bereich 1" and "Bereich 2" (no "Bereich 3")
+ *        - 098/100: ProgNr 8323 "Gebläsedrehzahl" (0x113D0C82) fixed: wrong command
+ *        - 098/100: ProgNr 2452 "SD Brennerpause" (0x113D2F87) fixed: value/2
  *       version 0.44
  *        - Added webserver functionality via SD card and various other improvements from GitHub user dukess
  *        - Added JSON output for MQTT
@@ -460,12 +469,14 @@ char buffer[BUFLEN] = { 0 };
 char outBuf[OUTBUF_LEN] = { 0 };
 byte outBufLen=0;
 
-char printBuffer[128] = { 0 };
+//char printBuffer[128] = { 0 };
 // not working:
 //  - %f
 //  printfp(client, PSTR("%s: %s<BR>\n"), F(MENU_TEXT_VER), F(BSB_VERSION));
-#define printfp(_stream,...) if(sprintf_P(printBuffer,__VA_ARGS__)>0) _stream.print(printBuffer);
-#define printfs(_stream,...) if(sprintf(printBuffer,__VA_ARGS__)>0) _stream.print(printBuffer);
+//#define printfp(_stream,...) if(sprintf_P(printBuffer,__VA_ARGS__)>0) _stream.print(printBuffer);
+#define printfp(_stream,...) outBufclear(); if(sprintf_P(outBuf,__VA_ARGS__)>0) _stream.print(outBuf);
+//  printfs(client, "%s: %s<BR>\n", F(MENU_TEXT_VER), F(BSB_VERSION));
+//#define printfs(_stream,...) if(sprintf(printBuffer,__VA_ARGS__)>0) _stream.print(printBuffer);
 
 char div_unit[32];
 
@@ -617,6 +628,9 @@ uint8_t saved_msg_cycle = 0;
 uint16_t pps_values[PPS_ANZ] = { 0 };
 boolean time_set = false;
 uint8_t current_switchday = 0;
+
+// common strings
+char P02X[] = "%02X";
 
 #include "bsb-version.h"
 #define BSB_VERSION MAJOR "." MINOR "." PATCH "-" COMPILETIME
@@ -1092,6 +1106,50 @@ int freeRam () {
 #endif
 }
 
+/**
+ * @see https://www.c-howto.de/tutorial/strings-zeichenketten/uebungen/loesung-teil-4-string-replace/
+ */
+char* stringReplace(char* search, char* replace, char* text, uint8_t times) {
+  char *tmpText, *searchStart;
+  int len = 0;
+
+  if (times == 0)
+    times = 255;//UINT_MAX;
+
+  for (uint8_t t = 0; t <= times; t++) {
+
+    // preuefe ob Such-String vorhanden ist
+    searchStart = strstr(text, search);
+    if (searchStart == NULL) {
+      return text;
+    }
+
+    // Speicher reservieren
+    tmpText = (char*)malloc(strlen(text) * sizeof(char));
+    if (tmpText == NULL) {
+      return NULL;
+    }
+
+    // temporaere Kopie anlegen
+    strcpy(tmpText, text);
+
+    // ersten Abschnitt in String setzen
+    len = searchStart - text;
+    text[len] = '\0';
+
+    // zweiten Abschnitt anhaengen
+    strcat(text, replace);
+
+    // dritten Abschnitt anhaengen
+    len += strlen(search);
+    strcat(text, (char*)tmpText + len);
+
+    // Speicher freigeben
+    free(tmpText);
+  }
+
+  return text;
+}
 
 /** *****************************************************************
  *  Function:  SerialPrintHex()
@@ -1230,19 +1288,19 @@ void SerialPrintRAW(byte* msg, byte len){
  * *************************************************************** */
 char *TranslateAddr(byte addr, char *device){
   switch(addr&0x7F){
-    case ADDR_HEIZ: strncpy(device, "HEIZ", 4); break;
-    case ADDR_EM1: strncpy(device, "EM1", 4); break;
-    case ADDR_EM2: strncpy(device, "EM2", 4); break;
-    case ADDR_RGT1: strncpy(device, "RGT1", 4); break;
-    case ADDR_RGT2: strncpy(device, "RGT2", 4); break;
-    case ADDR_CNTR: strncpy(device, "CNTR", 4); break;
-    case ADDR_SRVC: strncpy(device, "SRVC", 4); break;
-    case ADDR_LAN: strncpy(device, "LAN", 4); break;
-    case ADDR_DISP: strncpy(device, "DISP", 4); break;
-    case ADDR_OZW: strncpy(device, "OZW", 4); break;
-    case ADDR_FE: strncpy(device, "FE", 4); break;
-    case ADDR_ALL: strncpy(device, "ALL ", 4); break;
-    default: sprintf(device, "%02X", addr); break;
+    case ADDR_HEIZ: strncpy_P(device, PSTR("HEIZ"), 4); break;
+    case ADDR_EM1:  strncpy_P(device, PSTR("EM1" ), 4); break;
+    case ADDR_EM2:  strncpy_P(device, PSTR("EM2" ), 4); break;
+    case ADDR_RGT1: strncpy_P(device, PSTR("RGT1"), 4); break;
+    case ADDR_RGT2: strncpy_P(device, PSTR("RGT2"), 4); break;
+    case ADDR_CNTR: strncpy_P(device, PSTR("CNTR"), 4); break;
+    case ADDR_SRVC: strncpy_P(device, PSTR("SRVC"), 4); break;
+    case ADDR_LAN:  strncpy_P(device, PSTR("LAN" ), 4); break;
+    case ADDR_DISP: strncpy_P(device, PSTR("DISP"), 4); break;
+    case ADDR_OZW:  strncpy_P(device, PSTR("OZW" ), 4); break;
+    case ADDR_FE:   strncpy_P(device, PSTR("FE"  ), 4); break;
+    case ADDR_ALL:  strncpy_P(device, PSTR("ALL "), 4); break;
+    default:        sprintf_P(device, PSTR("%02X"), addr); break;
   }
   device[4] = 0;
   return device;
@@ -1284,22 +1342,22 @@ void SerialPrintAddr(byte addr){
  * *************************************************************** */
 char *TranslateType(byte type, char *mtype){
   switch(type){
-    case TYPE_QINF: strncpy(mtype, "QINF", 4); break;
-    case TYPE_INF: strncpy(mtype, "INF", 4); break;
-    case TYPE_SET: strncpy(mtype, "SET", 4); break;
-    case TYPE_ACK: strncpy(mtype, "ACK", 4); break;
-    case TYPE_NACK: strncpy(mtype, "NACK", 4); break;
-    case TYPE_QUR: strncpy(mtype, "QUR", 4); break;
-    case TYPE_ANS: strncpy(mtype, "ANS", 4); break;
-    case TYPE_QRV: strncpy(mtype, "QRV", 4); break;
-    case TYPE_ARV: strncpy(mtype, "ARV", 4); break;
-    case TYPE_ERR: strncpy(mtype, "ERR", 4); break;
-    case TYPE_IQ1: strncpy(mtype, "IQ1", 4); break;
-    case TYPE_IA1: strncpy(mtype, "IA1", 4); break;
-    case TYPE_IQ2: strncpy(mtype, "IQ2", 4); break;
-    case TYPE_IA2: strncpy(mtype, "IA2", 4); break;
+    case TYPE_QINF: strncpy_P(mtype, PSTR("QINF"), 4); break;
+    case TYPE_INF:  strncpy_P(mtype, PSTR("INF" ), 4); break;
+    case TYPE_SET:  strncpy_P(mtype, PSTR("SET" ), 4); break;
+    case TYPE_ACK:  strncpy_P(mtype, PSTR("ACK" ), 4); break;
+    case TYPE_NACK: strncpy_P(mtype, PSTR("NACK"), 4); break;
+    case TYPE_QUR:  strncpy_P(mtype, PSTR("QUR" ), 4); break;
+    case TYPE_ANS:  strncpy_P(mtype, PSTR("ANS" ), 4); break;
+    case TYPE_QRV:  strncpy_P(mtype, PSTR("QRV" ), 4); break;
+    case TYPE_ARV:  strncpy_P(mtype, PSTR("ARV" ), 4); break;
+    case TYPE_ERR:  strncpy_P(mtype, PSTR("ERR" ), 4); break;
+    case TYPE_IQ1:  strncpy_P(mtype, PSTR("IQ1" ), 4); break;
+    case TYPE_IA1:  strncpy_P(mtype, PSTR("IA1" ), 4); break;
+    case TYPE_IQ2:  strncpy_P(mtype, PSTR("IQ2" ), 4); break;
+    case TYPE_IA2:  strncpy_P(mtype, PSTR("IA2" ), 4); break;
     // If no match found: print the hex value
-    default: sprintf(mtype, "%02X", type); break;
+    default:        sprintf_P(mtype, PSTR("%02X"), type); break;
   } // endswitch
   mtype[4] = 0;
   return mtype;
@@ -1370,7 +1428,7 @@ void printBIT(byte *msg,byte data_len){
     DebugOutput.print(F("BYTE len error len!=2: "));
     SerialPrintData(msg);
     for (int i=0; i < data_len; i++) {
-      outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+      outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
     }
     decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
@@ -1407,7 +1465,7 @@ void printBYTE(byte *msg,byte data_len,const char *postfix){
     DebugOutput.print(F("BYTE len error len!=2: "));
     SerialPrintData(msg);
     for (int i=0; i < data_len; i++) {
-      outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+      outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
     }
     decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
@@ -1444,7 +1502,7 @@ void printWORD(byte *msg,byte data_len, long divisor, const char *postfix){
     DebugOutput.print(F("WORD len error len!=3: "));
     SerialPrintData(msg);
     for (int i=0; i < data_len; i++) {
-      outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+      outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
     }
     decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
@@ -1481,7 +1539,7 @@ void printSINT(byte *msg,byte data_len, long multiplier, const char *postfix){
     DebugOutput.print(F("WORD len error len!=3: "));
     SerialPrintData(msg);
     for (int i=0; i < data_len; i++) {
-      outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+      outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
     }
     decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
@@ -1518,7 +1576,7 @@ void printDWORD(byte *msg,byte data_len,long divider, const char *postfix){
     DebugOutput.print(F("DWORD len error len!=5: "));
     SerialPrintData(msg);
     for (int i=0; i < data_len; i++) {
-      outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+      outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
     }
     decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
@@ -1594,7 +1652,7 @@ void printFIXPOINT(byte *msg,byte data_len,float divider,int precision,const cha
     DebugOutput.print(F("FIXPOINT len !=3: "));
     SerialPrintData(msg);
     for (int i=0; i < data_len; i++) {
-      outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+      outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
     }
     decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
@@ -1631,7 +1689,7 @@ void printFIXPOINT_DWORD(byte *msg,byte data_len,float divider,int precision,con
     DebugOutput.print(F("FIXPOINT_DWORD len !=5: "));
     SerialPrintData(msg);
     for (int i=0; i < data_len; i++) {
-      outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+      outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
     }
     decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
@@ -1668,7 +1726,7 @@ void printFIXPOINT_BYTE(byte *msg,byte data_len,float divider,int precision,cons
     DebugOutput.print(F("FIXPOINT_BYTE len !=2: "));
     SerialPrintData(msg);
     for (int i=0; i < data_len; i++) {
-      outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+      outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
     }
     decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
@@ -1705,7 +1763,7 @@ void printFIXPOINT_BYTE_US(byte *msg,byte data_len,float divider,int precision,c
     DebugOutput.print(F("FIXPOINT_BYTE len !=2: "));
     SerialPrintData(msg);
     for (int i=0; i < data_len; i++) {
-      outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+      outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
     }
     decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
@@ -1744,7 +1802,7 @@ void printCHOICE(byte *msg,byte data_len,const char *val0,const char *val1){
     DebugOutput.print(F("CHOICE len !=2: "));
     SerialPrintData(msg);
     for (int i=0; i < data_len; i++) {
-      outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+      outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
     }
     decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
@@ -1762,7 +1820,7 @@ void printCHOICE(byte *msg,byte data_len,const char *val0,const char *val1){
  * Global resources used:
  *
  * *************************************************************** */
-void printENUM(uint_farptr_t enumstr,uint16_t enumstr_len,uint16_t search_val, int print_val){
+void printENUM(uint_farptr_t enumstr,uint16_t enumstr_len,uint16_t search_val, int print_val, char *buffer, int* bufferLen){
   uint16_t val;
   char *p=outBuf+outBufLen;
   if(enumstr!=0){
@@ -1875,7 +1933,7 @@ void printDateTime(byte *msg,byte data_len){
     DebugOutput.print(F(" VT_DATETIME len !=9: "));
     SerialPrintData(msg);
     for (int i=0; i < data_len; i++) {
-      outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+      outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
     }
     decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
@@ -1907,7 +1965,7 @@ void printDate(byte *msg,byte data_len){
     DebugOutput.print(F(" VT_DATE len !=9: "));
     SerialPrintData(msg);
     for (int i=0; i < data_len; i++) {
-      outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+      outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
     }
     decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
@@ -1956,7 +2014,7 @@ void printTimeProg(byte *msg,byte data_len){
     DebugOutput.print(F(" VT_TIMEPROG len !=12: "));
     SerialPrintData(msg);
     for (int i=0; i < data_len; i++) {
-      outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+      outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
     }
     decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
@@ -1997,7 +2055,7 @@ void printTime(byte *msg,byte data_len){
     DebugOutput.print(F("VT_HOUR_MINUTES len !=3: "));
     SerialPrintData(msg);
     for (int i=0; i < data_len; i++) {
-      outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+      outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
     }
   decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
@@ -2031,7 +2089,7 @@ void printLPBAddr(byte *msg,byte data_len){
     DebugOutput.print(F(" VT_LPBADDR len !=2: "));
     SerialPrintData(msg);
     for (int i=0; i < data_len; i++) {
-      outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+      outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
     }
     decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
   }
@@ -2106,7 +2164,7 @@ char *printTelegram(byte* msg, int query_line) {
      msg[16]==0xff && msg[17]==0x00 && msg[18]==0x00 && msg[19]==0xf8 &&
      msg[20]==0xf1) {
     // Heizkreis 2 Meldungen überspringen
-    return;
+//!    return;
   }
 #endif // NO_HK2
 
@@ -2279,7 +2337,7 @@ char *printTelegram(byte* msg, int query_line) {
     strcpy_PF(buffer, get_cmdtbl_desc(i));
 //    strcpy_P(buffer, (char*)pgm_read_word(&(cmdtbl[i].desc)));
     char *p=outBuf+outBufLen;
-    outBufLen+=sprintf(outBuf+outBufLen," %s: ", buffer);
+    outBufLen+=sprintf(outBuf+outBufLen,"%s: ", buffer);
     DebugOutput.print(p);
   }
 
@@ -2482,7 +2540,7 @@ char *printTelegram(byte* msg, int query_line) {
                 DebugOutput.print(F(" VT_WEEKDAY !=2: "));
                 SerialPrintData(msg);
                 for (int i=0; i < data_len; i++) {
-                  outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+                  outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
                   }
                 decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
                 }
@@ -2515,7 +2573,7 @@ char *printTelegram(byte* msg, int query_line) {
                 DebugOutput.print(F(" VT_ENUM len !=2 && len != 3: "));
                 SerialPrintData(msg);
                 for (int i=0; i < data_len; i++) {
-                  outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+                  outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
                   }
                 decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
                 }
@@ -2571,7 +2629,7 @@ char *printTelegram(byte* msg, int query_line) {
                 DebugOutput.print(F(" VT_STRING len ==0: "));
                 SerialPrintData(msg);
                 for (int i=0; i < data_len; i++) {
-                  outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+                  outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
                   }
                 decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
                 }
@@ -2593,7 +2651,7 @@ char *printTelegram(byte* msg, int query_line) {
               DebugOutput.print(pvalstr);
               break;
             }
-#endif
+#endif // NO_PPS
             case VT_ERRORCODE: //  u16 or u8 (via OCI420)
               if(data_len == 3 || data_len == 2 || data_len == 12 /* 6700 */) {
                 if(msg[bus.getPl_start()]==0){
@@ -2630,7 +2688,7 @@ char *printTelegram(byte* msg, int query_line) {
                 DebugOutput.print(F(" : "));
                 SerialPrintData(msg);
                 for (int i=0; i < data_len; i++) {
-                  outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+                  outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
                   }
                 decodedTelegram.error = TELEGRAM_ERROR_DECODING_ERROR;
                 }
@@ -2639,7 +2697,7 @@ char *printTelegram(byte* msg, int query_line) {
             default:
               SerialPrintData(msg);
               for (int i=0; i < data_len; i++) {
-                outBufLen+=sprintf(outBuf+outBufLen,"%02X",msg[bus.getPl_start()+i]);
+                outBufLen+=sprintf(outBuf+outBufLen,P02X,msg[bus.getPl_start()+i]);
               }
               decodedTelegram.error = TELEGRAM_ERROR_UNKNOWN_TYPE;
               break;
@@ -3970,7 +4028,7 @@ char* query(int line_start  // begin at this line (ProgNr)
 
       //DebugOutput.println(F("found"));
       if(c!=CMD_UNKNOWN && (flags & FL_NO_CMD) != FL_NO_CMD) {     // send only valid command codes
-        if (bus.getBusType() != BUS_PPS) {  // bus type is not PPS
+        if (bus.getBusType() != BUS_PPS) {  // bus type is not PPS => BSB or LPB
           retry=QUERY_RETRIES;
           while(retry){
             uint8_t query_type = TYPE_QUR;
@@ -4010,7 +4068,7 @@ char* query(int line_start  // begin at this line (ProgNr)
           decodedTelegram.error = TELEGRAM_ERROR_QUERY_FAILED;
           }
         } else { // bus type is PPS
-
+#ifndef NO_PPS
           uint32_t cmd = get_cmdtbl_cmd(i);
 //          uint8_t type = get_cmdtbl_type(i);
           uint16_t temp_val = 0;
@@ -4041,6 +4099,7 @@ char* query(int line_start  // begin at this line (ProgNr)
           Serial.print(F(": "));
           Serial.println(pvalstr);
           Serial.flush();
+#endif // NO_PPS
         }
       }else{
         //DebugOutput.println(F("unknown command"));
@@ -4064,29 +4123,29 @@ char* query(int line_start  // begin at this line (ProgNr)
           client.println(F("<tr style='color: #7f7f7f'><td>"));
         } else {
 
-        switch(decodedTelegram.error) {
-//        case TELEGRAM_ERROR_DECODING_ERROR:
-          case TELEGRAM_ERROR_UNKNOWN_COMMAND:
-          case TELEGRAM_ERROR_NOT_FOUND:
-//        case TELEGRAM_ERROR_NO_ENUM_STR:
-          case TELEGRAM_ERROR_UNKNOWN_TYPE:
-          case TELEGRAM_ERROR_PARAMETER_NOT_SUPPORTED:
-//        case TELEGRAM_ERROR_COMMON_LPB_BUS_ERROR:
-//        case TELEGRAM_ERROR_QUERY_FAILED:
+          switch(decodedTelegram.error) {
+//          case TELEGRAM_ERROR_DECODING_ERROR:
+            case TELEGRAM_ERROR_UNKNOWN_COMMAND:
+            case TELEGRAM_ERROR_NOT_FOUND:
+//          case TELEGRAM_ERROR_NO_ENUM_STR:
+            case TELEGRAM_ERROR_UNKNOWN_TYPE:
+            case TELEGRAM_ERROR_PARAMETER_NOT_SUPPORTED:
+//          case TELEGRAM_ERROR_COMMON_LPB_BUS_ERROR:
+//          case TELEGRAM_ERROR_QUERY_FAILED:
 #ifdef HIDE_PARAMETERS
-            hide_add_parameter(line); // remember unsupported parameter/type/command/...
-            if(hide_enabled) continue;
+              hide_add_parameter(line); // remember unsupported parameter/type/command/...
+              if(hide_enabled) continue;
 #endif
 #ifdef HIDE_UNKNOWN
             continue;
 #endif
-            break;
-          default: break;// go ahead
-        }
+              break;
+            default: break;// go ahead
+          }
 
           client.println(F("<tr><td>"));
         }
-        client.print(outBuf); // No Cat - Param
+        client.print(outBuf); // <Parameter No> <Category> - <Parameter Name>
 
         switch(decodedTelegram.error){
           case TELEGRAM_ERROR_DECODING_ERROR:          client.println(F(" - decoding error")); break;
@@ -4142,11 +4201,11 @@ char* query(int line_start  // begin at this line (ProgNr)
         client.println(F("</td><td>"));
         if (msg[4+(bus.getBusType()*4)] != TYPE_ERR && type != VT_UNKNOWN) {
           if(type == VT_ENUM || type == VT_CUSTOM_ENUM || type == VT_BIT || type == VT_ONOFF || type == VT_YESNO ) {
-            if(decodedTelegram.readonly==0) {
+//!            if(decodedTelegram.readonly==0) {
               client.print(F("<select "));
-            } else {
-              client.print(F("<select disabled='disabled' "));
-            }
+//!            } else {
+//!              client.print(F("<select disabled='disabled' "));
+//!            }
             if (type == VT_BIT) {
               client.print(F("multiple "));
             }
@@ -4222,11 +4281,11 @@ char* query(int line_start  // begin at this line (ProgNr)
 
             client.print(F("</select></td><td>"));
             if ((flags & FL_RONLY) != FL_RONLY) {
-              if(decodedTelegram.readonly==0) {
+//!              if(decodedTelegram.readonly==0) {
                 client.print(F("<input type=button value='Set' onclick=\"set"));
-              } else {
-                client.print(F("<input disabled='disabled' type=button value='Set' onclick=\"set"));
-              }
+//!              } else {
+//!                client.print(F("<input disabled='disabled' type=button value='Set' onclick=\"set"));
+//!              }
               if (type == VT_BIT) {
                 client.print(F("bit"));
               }
@@ -4235,11 +4294,11 @@ char* query(int line_start  // begin at this line (ProgNr)
               client.print(F(")\">"));
             }
           } else {
-              if(decodedTelegram.readonly==0) {
+//!              if(decodedTelegram.readonly==0) {
                 client.print(F("<input type=text id='value"));
-              } else {
-                client.print(F("<input disabled='disabled' type=text id='value"));
-              }
+//!              } else {
+//!                client.print(F("<input disabled='disabled' type=text id='value"));
+//!              }
             client.print(line);
             client.print(F("' VALUE='"));
 
@@ -5530,6 +5589,88 @@ uint8_t pps_offset = 0;
 #endif
 // IPWE END
 
+//===== csv ==================================================================
+        // query params and return CSV
+        //if(urlString == "/csv") {
+        if(cLineBuffer[0]=='/' && cLineBuffer[1]=='c' && cLineBuffer[2]=='s' && cLineBuffer[3]=='v') {
+          client.flush();
+          strcpy_P(buffer, PSTR("HTTP/1.1 200 OK\nContent-Type: text/csv; charset=utf-8\nContent-Disposition: attachment; filename=\"BSB_LAN.csv\"\n\n"));
+          client.print(buffer);
+
+         if(cLineBuffer[4]!='=') break;
+         
+         char *urlQuery = &cLineBuffer[5];
+         int prognr_min = 0;
+         int prognr_max = 0;
+
+         char *rest_1 = NULL;
+         char *token1 = strtok_r(urlQuery, ",", &rest_1);
+
+         while (token1 != NULL) {
+           char *rest_2 = NULL;
+           char *token2 = strtok_r(token1, "-", &rest_2);
+
+           if (token2 == NULL) break;
+    
+           prognr_min = atoi(token2);
+           token2 = strtok_r(NULL, "-", &rest_2);
+           prognr_max = token2!=NULL?atoi(token2):prognr_min;
+
+           for(int prognr = prognr_min; prognr <= prognr_max; prognr++) {
+//--------------------------------------------------------------------------
+             uint32_t cmd=0;
+             int line=findLine(prognr,0,&cmd);
+             if (line<0) continue;
+             client.print(prognr);
+             client.print(F(";"));
+
+             // category
+             outBufclear();
+#if defined(__SAM3X8E__)
+             printENUM(ENUM_CAT,sizeof(ENUM_CAT),get_cmdtbl_category(line),0);
+#else
+             printENUM(pgm_get_far_address(ENUM_CAT),sizeof(ENUM_CAT),get_cmdtbl_category(line),0);
+#endif
+             char *p=outBuf+outBufLen+1; p='\0';
+             client.print(outBuf);
+
+             client.print(F(";"));
+
+             // name
+             outBufclear();
+             strcpy_PF(buffer, get_cmdtbl_desc(line));
+             outBufLen+=sprintf(outBuf+outBufLen,"%s", buffer);
+             p=outBuf+outBufLen+1; p='\0';
+             client.print(outBuf);
+
+             client.print(F(";"));
+
+             // value
+             outBufclear();
+             char *value = query(prognr,prognr,1);
+
+             if(strstr(value, "<ol")!=NULL) {
+               // time program
+               value = stringReplace("<ol style='margin-top:4px;'><li>", "", value, 1);
+               value = stringReplace("</li><li>", ";", value, 2);
+               value = stringReplace("</li></ol>", "", value, 1);
+             } else {
+               value = stringReplace("&#037;", "%", value, 1);
+               value = stringReplace("&deg;", "°", value, 1);
+               value = stringReplace("&#181;", "µ", value, 1);
+
+               value = stringReplace(" ", ";", value, 1);
+               value = stringReplace(" - ", ";", value, 1);
+             }
+             client.println(value);
+//--------------------------------------------------------------------------
+           } // for
+           token1 = strtok_r(NULL, ",", &rest_1);
+         } // while
+          client.flush();
+          break;
+        } // csv
+
         if (urlString == "/favicon.ico") {
           bufferedprint(client, PSTR("HTTP/1.1 200 OK\nContent-Type: image/x-icon\n\n"));
 #ifdef WEBSERVER
@@ -5734,6 +5875,7 @@ uint8_t pps_offset = 0;
         }
 #endif
 
+//===== h ====================================================================
         if(p[1]=='h') {
           if(p[2]=='1') hexdump = true;
           else if(p[2]=='0') hexdump = false;
@@ -5764,6 +5906,7 @@ uint8_t pps_offset = 0;
 #endif
 
 #ifdef HIDE_PARAMETERS
+//===== Z ====================================================================
         if(p[1]=='Z') { // clear/print ignored parameters
           webPrintHeader();
           if(parameters_skip != NULL) {
@@ -5790,6 +5933,7 @@ uint8_t pps_offset = 0;
 #endif // HIDE_PARAMETERS
 
 #ifdef FAVORITES
+//===== F ====================================================================
 	      if (p[1] == 'F') {  // show/add/remove favourites
 	      	// TODO: change favourites:
 	      	// X add: +<progNo>(,+<progNo>)*
@@ -5841,7 +5985,7 @@ uint8_t pps_offset = 0;
 	      	break;
         } // F - show/add/removes
 #endif // FAVORITES
-
+//===== V ====================================================================
         // setting verbosity level
         if(p[1]=='V'){
           p+=2;
@@ -5857,6 +6001,7 @@ uint8_t pps_offset = 0;
           break;
         }
         // switching monitor on/off
+//===== M ====================================================================
         if(p[1]=='M'){
           p+=2;               // hopefully finds a digit there ...
           monitor=atoi(p);    // .. to convert
@@ -5870,7 +6015,7 @@ uint8_t pps_offset = 0;
           webPrintFooter();
           break;
         }
-
+//===== S | I ====================================================================
         // Send a SET command or an information message
         // char * cLineBuffer has the following structure:
         // p[1]          'S' | 'I'
@@ -5942,6 +6087,7 @@ uint8_t pps_offset = 0;
           }
           break;
         }
+//===== K ====================================================================
         // list categories
         if(p[1]=='K' && !isdigit(p[2])){
           //list categories
@@ -5967,27 +6113,23 @@ uint8_t pps_offset = 0;
           int16_t cat_min = -1, cat_max = -1;
           strcpy_P(formatbuf, PSTR(K_FORMAT_TBL));
           for(int cat=0;cat<CAT_UNKNOWN;cat++){
+            outBufclear();
 #ifdef HIDE_CATEGORIES
             if (p[2]!='A' && ignoreCategory(cat) == true) {
+              client.flush();
               continue; // skip unsupported category
             }
 #endif
-            outBufclear();
-            if ((bus.getBusType() != BUS_PPS) || (bus.getBusType() == BUS_PPS && cat == CAT_PPS)) {
+            if ((bus.getBusType() != BUS_PPS) || (bus.getBusType() == BUS_PPS && cat == CAT_PPS)) {              
 #if defined(__SAM3X8E__)
               printENUM(ENUM_CAT,len,cat,1);
-#else
-              printENUM(pgm_get_far_address(ENUM_CAT),len,cat,1);
-#endif
               DebugOutput.println();
-#if defined(__SAM3X8E__)
               cat_min = ENUM_CAT_NR[cat*2];
-#else
-              cat_min = pgm_read_word_far(pgm_get_far_address(ENUM_CAT_NR) + (cat*2) * sizeof(ENUM_CAT_NR[0]));
-#endif
-#if defined(__SAM3X8E__)
               cat_max = ENUM_CAT_NR[cat*2+1];
 #else
+              printENUM(pgm_get_far_address(ENUM_CAT),len,cat,1);
+              DebugOutput.println();
+              cat_min = pgm_read_word_far(pgm_get_far_address(ENUM_CAT_NR) + (cat*2) * sizeof(ENUM_CAT_NR[0]));
               cat_max = pgm_read_word_far(pgm_get_far_address(ENUM_CAT_NR) + (cat*2+1) * sizeof(ENUM_CAT_NR[0]));
 #endif
               sprintf(buffer, formatbuf, cat, outBuf, cat_min, cat_max);
@@ -5999,6 +6141,7 @@ uint8_t pps_offset = 0;
           webPrintFooter();
           break;
         }
+//===== E ====================================================================
         // list enum values
         if(p[1]=='E'){
           webPrintHeader();
@@ -6044,6 +6187,7 @@ uint8_t pps_offset = 0;
           webPrintFooter();
           break;
         }
+//===== R ====================================================================
         // query reset value
         if(p[1]=='R'){
           uint32_t c;
@@ -6080,7 +6224,8 @@ uint8_t pps_offset = 0;
           webPrintFooter();
           break;
         }
-
+//===== Q ====================================================================
+        // Check for unreleased controller-specific parameters
         if(p[1]=='Q') {
           if(!(httpflags & 128)) webPrintHeader();
 
@@ -6268,8 +6413,8 @@ uint8_t pps_offset = 0;
           if(!(httpflags & 128)) webPrintFooter();
           break;
         }
-
-        if(p[1]=='Y'){
+//===== Y ====================================================================
+        if(p[1]=='Y'){ // brute-force query
 #ifdef DEBUG
           webPrintHeader();
           uint8_t type = strtol(&p[2],NULL,16);
@@ -6309,7 +6454,8 @@ uint8_t pps_offset = 0;
 #endif
           break;
         }
-
+//===== J ====================================================================
+        // JSON functions
         if (p[1]=='J') {
           int i=0;
           uint32_t cmd=0;
@@ -6338,13 +6484,13 @@ uint8_t pps_offset = 0;
           if(!jsonbuffer) {
             DebugOutput.println(F("Can't alloc memory"));
             break;
-            }
+          }
           char *formatbuf = (char *)malloc(120);
           if(!formatbuf) {
             free(jsonbuffer);
             DebugOutput.println(F("Can't alloc memory"));
             break;
-            }
+          }
 
           if (json_token!=NULL) {
             client.flush();
@@ -6354,6 +6500,7 @@ uint8_t pps_offset = 0;
               break;
             }
           }
+          // read body?
           while (client.available() || json_token!=NULL) {
             if (client.available()) {
               char c = client.read();
@@ -6385,7 +6532,9 @@ uint8_t pps_offset = 0;
               }
             } else {
               json_parameter = atoi(json_token);
+
             }
+
             if (output || json_token != NULL) {
               int temp_i=findLine(json_parameter,0,&cmd);
               if ((p[2] == 'Q' || p[2] == 'C') && (temp_i<0 || cmd == CMD_UNKNOWN)) {
@@ -6399,10 +6548,11 @@ uint8_t pps_offset = 0;
               if (!been_here || (p[2]=='K' && isdigit(p[4]))) {
                 been_here = true;
               } else {
-//                client.println(F(","));
                 strcpy_P(jsonbuffer, PSTR(","));
                 buffershiftedbycolon = strlen(jsonbuffer);
               }
+//----- JK=ALL ---------------------------------------------------------------
+              // list all categories
               if (p[2]=='K' && !isdigit(p[4])) {
                 uint16_t x=2;
                 uint8_t cat=0;
@@ -6443,13 +6593,17 @@ uint8_t pps_offset = 0;
                     break;
                   }
                 }
+
                 json_token = NULL;
               }
-
+//----- JK=<cat> -------------------------------------------------------------
+              // list category parameters
               if (p[2]=='K' && isdigit(p[4])) {
                 cat_param++;
                 if (cat_min<0) {
                   search_cat = atoi(&p[4]);
+                  // cat_min = min. progno in category
+                  // cat_max = max. progno in category
 #if defined(__SAM3X8E__)
                   cat_min = ENUM_CAT_NR[search_cat*2];
                   cat_max = ENUM_CAT_NR[search_cat*2+1];
@@ -6468,12 +6622,22 @@ uint8_t pps_offset = 0;
                   json_token = NULL;
                 }
               }
-
+//----- JQ | JC | JK=<cat> ---------------------------------------------------
+              // JQ: Query parameters
+              // JC: Query possible values for parameters
+              // JK: Query all parameters of category        Part 1/2
               if (p[2]=='Q' || p[2]=='C' || (p[2]=='K' && isdigit(p[4]))) {
                 i=findLine(json_parameter,0,&cmd);
                 if (i<0 || cmd == CMD_UNKNOWN) {
                   continue;
                 }
+#ifdef HIDE_PARAMETERS
+                if(p[2]=='Q' && hide_contains_parameter(json_parameter)) {
+                  if(json_token!=NULL) json_token = strtok(NULL,",");
+                  continue; // skip unsupported parameter
+                }
+#endif
+
                 int k=0;
                 uint8_t type=get_cmdtbl_type(i);
                 uint8_t flags=get_cmdtbl_flags(i);
@@ -6492,8 +6656,21 @@ uint8_t pps_offset = 0;
                 if (!been_here2 || p[2] == 'Q' || p[2] == 'C') been_here2=true;
 
                 char *bufferp = jsonbuffer + strlen(jsonbuffer);
-                strcpy_PF(bufferp, get_cmdtbl_desc(i));
+                strcpy_PF(bufferp, get_cmdtbl_desc(i)); // parameter name
                 strcat_P(bufferp, PSTR("\",\n"));
+                client.print(jsonbuffer);
+
+                // category
+                int catNo=get_cmdtbl_category(i);
+                int catLen=sizeof(ENUM_CAT);
+                outBufclear();
+#if defined(__SAM3X8E__)
+                printENUM(ENUM_CAT,catLen,catNo,0);
+#else
+                printENUM(pgm_get_far_address(ENUM_CAT),catLen,catNo,0);
+#endif
+                sprintf_P(jsonbuffer, PSTR("    \"category\": \"%s\",\n"), outBuf);
+                outBufclear();
                 client.print(jsonbuffer);
 
                 uint8_t div_unit_len=0;
@@ -6513,7 +6690,8 @@ uint8_t pps_offset = 0;
                   }
                   k++;
                 }
-
+//----- JQ=<param>,... --------------------------------------------------------
+                // query parameters       Part 2/2
                 if (p[2]=='Q') {
                   char* ret_val_str = query(json_parameter,json_parameter,1);
                   char* unit_str = NULL;
@@ -6565,7 +6743,7 @@ uint8_t pps_offset = 0;
                     strcat(jsonbuffer,desc_str);
                   strcat_P(jsonbuffer,PSTR("\",\n"));
                   client.print(jsonbuffer);
-                }
+                } // /Q
 
                 if (p[2] != 'Q') {
                   strcpy_P(jsonbuffer, PSTR("    \"possibleValues\": [\n"));
@@ -6630,13 +6808,13 @@ uint8_t pps_offset = 0;
                   strcpy_P(formatbuf, PSTR("\n    ],\n    \"isswitch\": \"%d\",\n"));
                   sprintf(jsonbuffer, formatbuf, decodedTelegram.isswitch);
                   client.print(jsonbuffer);
-                }
+                } // ! /Q
 
                 strcpy_P(formatbuf, PSTR("    \"dataType\": %d,\n    \"readonly\": %d\n  }"));
                 sprintf(jsonbuffer, formatbuf, div_data_type, decodedTelegram.readonly);
                 client.print(jsonbuffer);
               }
-
+//----- JS -------------------------------------------------------------------
               if (p[2]=='S') {
                 int status = set(json_parameter, json_value_string, json_type);
                 strcpy_P(formatbuf, PSTR("  \"%d\": {\n    \"status\": %d\n  }"));
@@ -6648,20 +6826,22 @@ uint8_t pps_offset = 0;
                 sprintf(jsonbuffer, formatbuf, json_parameter, json_value_string, json_type);
                 DebugOutput.print(jsonbuffer);
               }
+
               if (json_token != NULL && ((p[2] != 'K' && !isdigit(p[4])) || p[2] == 'Q' || p[2] == 'C')) {
                 json_token = strtok(NULL,",");
               }
             }
-          }
+          } // while (client.available() || json_token!=NULL) {
           strcpy_P(jsonbuffer, PSTR("\n}\n"));
           client.print(jsonbuffer);
           client.flush();
           free(formatbuf);
           free(jsonbuffer);
           break;
-        }
+        } // /J
 
 #ifdef LOGGER
+//===== D ====================================================================
         if(p[1]=='D'){ // access datalog file
           if (p[2]=='U') {  // upload new datalog file
             unsigned long lastAvgTime_tmp = lastAvgTime;
@@ -6736,8 +6916,9 @@ uint8_t pps_offset = 0;
             }
           }
           break;
-        }
+        } // /D
 #endif
+//===== C ====================================================================
         if (p[1]=='C'){ // dump configuration
           if(!(httpflags & 128)) webPrintHeader();
           client.println(F(MENU_TEXT_CFG "<BR><BR>"));
@@ -7013,22 +7194,26 @@ uint8_t pps_offset = 0;
 
           break;
         } // dump configuration
-        if (p[1]=='L' && p[2]=='B' && p[3]=='='){
-          if (p[4]=='1') {
-            log_bc_only=1;
-          } else {
-            log_bc_only=0;
+//===== LB= ====================================================================
+        if (p[1]=='L' && p[2]=='B'){
+          if (p[3]=='=') {
+            if (p[4]=='1') {
+              log_bc_only=1;
+            } else {
+              log_bc_only=0;
+            }
+            webPrintHeader();
+            client.print(F(MENU_TEXT_LBO ": "));
+            if (log_bc_only) {
+              client.println(F(MENU_TEXT_YES "<BR>"));
+            } else {
+              client.println(F(MENU_TEXT_NO "<BR>"));
+            }
+            webPrintFooter();
+            break;
           }
-          webPrintHeader();
-          client.print(F(MENU_TEXT_LBO ": "));
-          if (log_bc_only) {
-            client.println(F(MENU_TEXT_YES "<BR>"));
-          } else {
-            client.println(F(MENU_TEXT_NO "<BR>"));
-          }
-          webPrintFooter();
-          break;
         }
+//===== LU= ====================================================================
         if (p[1]=='L' && p[2]=='U' && p[3]=='='){
           if (p[4]=='1') {
             log_unknown_only=1;
@@ -7045,6 +7230,7 @@ uint8_t pps_offset = 0;
           webPrintFooter();
           break;
         }
+//===== L= ====================================================================
         if (p[1]=='L' && p[2]=='='){ // logging configuration: L=<interval>,<parameter 1>,<parameter 2>,...,<parameter20>
           webPrintHeader();
           char* log_token = strtok(p,"=,");  // drop everything before "="
@@ -7079,6 +7265,7 @@ uint8_t pps_offset = 0;
           webPrintFooter();
           break;
         }
+//===== P ====================================================================
         if (p[1]=='P') {
           webPrintHeader();
 
@@ -7125,6 +7312,7 @@ uint8_t pps_offset = 0;
           webPrintFooter();
           break;
         }
+//===== N ====================================================================
         if (p[1]=='N'){           // Reset Arduino and clear EEPROM
 #ifdef RESET
           webPrintHeader();
@@ -7150,6 +7338,7 @@ uint8_t pps_offset = 0;
 #endif
           break;
         }
+//===== nnnn ====================================================================
         // print queries
         webPrintHeader();
         char* range;
@@ -8422,4 +8611,4 @@ for (int i=0; i<=LAST_ENUM_NR; i++) {
 
 #include "BSB_lan_custom_setup.h"
 
-}
+}  // --- setup () ---

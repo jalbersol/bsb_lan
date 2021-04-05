@@ -1847,6 +1847,7 @@ UIStrings["ENUM2706_0d_TEXT"] = "Drifttest überfällig";
 UIStrings["ENUM2706_12_TEXT"] = "ADA Intervall 1 fällig";
 UIStrings["ENUM2721_01_TEXT"] = "Erdgas";
 UIStrings["ENUM2721_02_TEXT"] = "Flüssiggas";
+UIStrings["ENUM2727_00_TEXT"] = "Bereich 0";
 UIStrings["ENUM2727_01_TEXT"] = "Bereich 1";
 UIStrings["ENUM2727_02_TEXT"] = "Bereich 2";
 UIStrings["ENUM2727_03_TEXT"] = "Bereich 3";

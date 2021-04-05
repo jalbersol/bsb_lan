@@ -39,7 +39,7 @@ void hide_add_parameter(int parameter)
 		{
 			DebugOutput.print(F(" -> Hide: Not ignored parameter "));
 			DebugOutput.println(parameter);
-			return false;
+			return;
 		}
 	}
 
